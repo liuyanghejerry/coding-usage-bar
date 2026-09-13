@@ -242,3 +242,40 @@ test("Claude status line ingest preserves the measured menu bar budget", () => {
   assert.deepEqual(snapshot.display, displayGeometry);
   assert.ok(snapshot.providers.some((provider) => provider.usage.provider === "claude"));
 });
+
+const diskUsage = {
+  mountPoint: "/",
+  totalBytes: 500 * 1024 ** 3,
+  availableBytes: 65 * 1024 ** 3,
+  usedPercent: 87,
+  measuredAt: "2026-09-13T00:00:00.000Z",
+};
+
+test("the producer records the measured disk headroom in status.json", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "coding-usage-bar-disk-"));
+  const paths = buildPaths(home);
+  commitCollectedStatusSnapshot([usage], [], { paths, disk: diskUsage });
+  assert.deepEqual(loadStatusSnapshot(paths).disk, diskUsage);
+});
+
+test("a failed disk probe keeps the previous reading instead of blanking it", () => {
+  // One bad statfs must not blank the menu bar disk row for the next
+  // collection interval.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "coding-usage-bar-disk-"));
+  const paths = buildPaths(home);
+  commitCollectedStatusSnapshot([usage], [], { paths, disk: diskUsage });
+  commitCollectedStatusSnapshot([usage], [], { paths, disk: null });
+  assert.deepEqual(loadStatusSnapshot(paths).disk, diskUsage);
+});
+
+test("Claude status line ingest preserves the disk reading", () => {
+  // Same rationale as the display budget: the ingest path runs on every
+  // prompt and must not drop producer-measured machine state.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "coding-usage-bar-disk-"));
+  const paths = buildPaths(home);
+  commitCollectedStatusSnapshot([usage], [], { paths, disk: diskUsage });
+
+  updateStatusSnapshotUsage(claudeUsage(31, "2026-08-21T09:20:00.000Z"), paths);
+
+  assert.deepEqual(loadStatusSnapshot(paths).disk, diskUsage);
+});

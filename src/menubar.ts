@@ -3,14 +3,15 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { ensureDir, isFile } from "./fs-util.js";
-import { formatProviderLabel, formatResetTime } from "./format.js";
+import { DISK_ALERT_USED_PERCENT, DISK_WARNING_USED_PERCENT } from "./disk.js";
+import { formatBytes, formatProviderLabel, formatResetTime } from "./format.js";
 import { buildPaths } from "./paths.js";
 import { stableNodeExecutable } from "./node-runtime.js";
 import { loadDisplayStatusSnapshot } from "./runtime.js";
 import { renderTitleImage } from "./menubar-render.js";
 import { loadGlyphSet, GlyphSet } from "./glyphs.js";
-import { renderUsageCard, UsageCardPayload, CardProviderBlock } from "./menubar-card.js";
-import { BurnState, RuntimePaths, StatusSnapshot } from "./types.js";
+import { renderUsageCard, UsageCardPayload, CardProviderBlock, CardDiskBlock } from "./menubar-card.js";
+import { BurnState, DiskUsage, RuntimePaths, StatusSnapshot } from "./types.js";
 
 const MARKER = "coding-usage-bar managed SwiftBar plugin";
 const SWIFTBAR_APP_PATHS = ["/Applications/SwiftBar.app", path.join(process.env.HOME ?? "", "Applications", "SwiftBar.app")];
@@ -915,6 +916,43 @@ function cardProviderBlock(item: StatusSnapshot["providers"][number], now: Date)
   };
 }
 
+// Disk fullness shares the state palette: green while there is headroom,
+// orange past the warning mark, red when the disk is nearly full.
+function diskColorPair(usedPercent: number) {
+  if (usedPercent >= DISK_ALERT_USED_PERCENT) {
+    return ALERT_COLOR;
+  }
+  if (usedPercent >= DISK_WARNING_USED_PERCENT) {
+    return WARNING_COLOR;
+  }
+  return OK_COLOR;
+}
+
+function diskStateLabel(usedPercent: number) {
+  if (usedPercent >= DISK_ALERT_USED_PERCENT) {
+    return "Critical";
+  }
+  if (usedPercent >= DISK_WARNING_USED_PERCENT) {
+    return "Low";
+  }
+  return "OK";
+}
+
+function diskLowMessage() {
+  return "Low disk space — clean up caches, node_modules, and Docker images.";
+}
+
+function cardDiskBlock(disk: DiskUsage): CardDiskBlock {
+  const [lightColor, darkColor] = diskColorPair(disk.usedPercent).split(",");
+  return {
+    pct: disk.usedPercent,
+    lightColor,
+    darkColor,
+    detail: `${formatBytes(disk.availableBytes)} free`,
+    message: disk.usedPercent >= DISK_ALERT_USED_PERCENT ? diskLowMessage() : null,
+  };
+}
+
 function usageCardValue(
   snapshot: StatusSnapshot,
   providers: StatusSnapshot["providers"],
@@ -926,6 +964,7 @@ function usageCardValue(
     profile: snapshot.profile.toUpperCase(),
     updatedLabel: cardUpdatedLabel(snapshot),
     providers: providers.map((item) => cardProviderBlock(item, now)),
+    disk: snapshot.disk ? cardDiskBlock(snapshot.disk) : null,
     scale: TITLE_IMAGE_SCALE,
   };
   const cacheKey = `${prefersDark ? "dark" : "light"}:${JSON.stringify(payload)}`;
@@ -1051,6 +1090,29 @@ export function renderMenuBar(snapshot: StatusSnapshot = loadDisplayStatusSnapsh
       }
       lines.push(muted(targetLabel(item)));
       lines.push(line(item.analysis.message, { color: MUTED_COLOR, size: 12, length: 84 }));
+      lines.push("---");
+    }
+
+    // Text-fallback disk rows mirror the card's disk block: a header with the
+    // free-space badge, then an ANSI meter on the provider row grid.
+    if (snapshot.disk) {
+      const disk = snapshot.disk;
+      const colorPair = diskColorPair(disk.usedPercent);
+      lines.push(line(`Disk  ${diskStateLabel(disk.usedPercent)}`, {
+        sfimage: "internaldrive",
+        color: TEXT_COLOR,
+        size: 14,
+        badge: `${formatBytes(disk.availableBytes)} free`,
+      }));
+      const percent = `${Math.round(disk.usedPercent).toString().padStart(3)}%`;
+      lines.push(line(`disk  ${coloredMeter(disk.usedPercent, colorPair)}  ${ansiRGB(colorPair, percent)}  of ${formatBytes(disk.totalBytes)}`, {
+        ansi: true,
+        font: ROW_FONT,
+        size: 12,
+      }));
+      if (disk.usedPercent >= DISK_ALERT_USED_PERCENT) {
+        lines.push(muted(diskLowMessage()));
+      }
       lines.push("---");
     }
   }

@@ -43,6 +43,8 @@ Coding Usage Bar 是独立开源项目，也是本工具的唯一事实源。它
 - 允许触发采集的入口只有 `coding-usage-bar daemon --once`、launchd daemon、`coding-usage-bar status --refresh`、`coding-usage-bar ingest claude-statusline` 这类 producer 命令。
 - SwiftBar 插件如果需要更实时，应该先执行 `coding-usage-bar daemon --once` 更新 `status.json`，再执行 `coding-usage-bar menubar render`；不要把采集逻辑塞进 `renderMenuBar()`。
 - `loadDisplayStatusSnapshot()` 在 `status.json` 不存在时不能 fallback 到采集原始源；应返回 `STATUS_MISSING`，提示用户运行 producer。
+- 菜单栏宽度预算（`display`）和磁盘余量（`disk`）都是 producer 侧在采集周期内测量并写入 `status.json` 的机器状态；展示层只读不测。磁盘用进程内 `fs.statfsSync("/")`（bavail，与 df 一致），不 spawn 任何命令；探测失败时保留上一次读数，不能清空展示。
+- 磁盘余量只进 dropdown 卡片（`UsageCardPayload.disk`）和文本 fallback 行，不进菜单栏标题——标题宽度预算装不下更多段。75% 变黄、90% 变红并附清理提示；阈值常量在 `disk.ts`。
 - 如果发现 stale，先检查 producer 是否生成了新的 `status.json`，以及 collector 是否能从 session 数据源读到最新 `rate_limits`；不要用“让展示层自己采集”绕过问题。
 - Codex collector 属于 producer 侧，可以优化扫描范围和排序。它应只扫描 `~/.codex/sessions` 与 `~/.codex/archived_sessions`，不要递归整个 `~/.codex`，避免读到 `.tmp`、插件 fixture 或其他非 session JSONL。
 - 必须保留回归测试覆盖这个边界：缺少 `status.json` 时，display 入口不采集原始源；非 session JSONL 不会被 Codex collector 当作 usage 来源。

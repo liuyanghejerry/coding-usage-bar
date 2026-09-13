@@ -133,6 +133,21 @@ export interface DisplayGeometry {
   measuredAt: string;
 }
 
+// Root-volume disk headroom measured by the producer (fs.statfs, no process
+// spawn). AI coding sessions burn disk fast (caches, node_modules, build
+// output), so the menu bar tracks it next to the plan quotas. Like
+// DisplayGeometry this is producer-only data: the display layer reads it from
+// status.json and never measures the disk itself.
+export interface DiskUsage {
+  mountPoint: string;
+  totalBytes: number;
+  // Bytes available to an unprivileged process (statfs bavail, what df reports
+  // as Avail); purgeable APFS space is not counted.
+  availableBytes: number;
+  usedPercent: number;
+  measuredAt: string;
+}
+
 export interface StatusSnapshot {
   generatedAt: string;
   profile: BurnProfile;
@@ -141,6 +156,9 @@ export interface StatusSnapshot {
   // Absent on snapshots written before display probing, on non-macOS hosts,
   // and whenever the probe fails. Consumers must degrade, never assume.
   display?: DisplayGeometry | null;
+  // Absent on snapshots written before disk probing and whenever statfs
+  // fails. Consumers must degrade, never assume.
+  disk?: DiskUsage | null;
 }
 
 export interface BurnConfig {

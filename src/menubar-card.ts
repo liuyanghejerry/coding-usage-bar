@@ -14,6 +14,16 @@ export interface CardBarRow {
   resetLabel: string;
 }
 
+export interface CardDiskBlock {
+  pct: number;
+  lightColor: string;
+  darkColor: string;
+  // Right-aligned column where provider rows show the reset time.
+  detail: string;
+  // Cleanup hint, only when the disk is critically full.
+  message: string | null;
+}
+
 export interface CardProviderBlock {
   name: string;
   iconPath: string | null;
@@ -32,6 +42,7 @@ export interface UsageCardPayload {
   profile: string;
   updatedLabel: string;
   providers: CardProviderBlock[];
+  disk?: CardDiskBlock | null;
   scale: number;
 }
 
@@ -91,6 +102,7 @@ const TRACK_X = PAD_X + 18 + 16;
 const PILL_H = 16;
 const PILL_PAD_X = 7;
 const PILL_RADIUS = 8;
+const DISK_PAD_Y = 8;
 
 function blockHeight(block: CardProviderBlock): number {
   let h = BLOCK_PAD_Y * 2 + HEAD_H;
@@ -104,6 +116,14 @@ function blockHeight(block: CardProviderBlock): number {
   return h;
 }
 
+function diskBlockHeight(disk: CardDiskBlock): number {
+  let h = DISK_PAD_Y * 2 + ROW_H;
+  if (disk.message) {
+    h += MSG_GAP + MSG_H;
+  }
+  return h;
+}
+
 function cardHeight(payload: UsageCardPayload): number {
   let h = TOP_PAD + HEADER_H + HEADER_GAP;
   payload.providers.forEach((block, idx) => {
@@ -112,6 +132,12 @@ function cardHeight(payload: UsageCardPayload): number {
       h += 1;
     }
   });
+  if (payload.disk) {
+    if (payload.providers.length > 0) {
+      h += 1;
+    }
+    h += diskBlockHeight(payload.disk);
+  }
   return h + BOTTOM_PAD;
 }
 
@@ -167,6 +193,46 @@ function drawPill(ctx: DrawContext, xPt: number, topPt: number, text: string, co
   return pillW;
 }
 
+// Label + track + pct + right-column text row shared by provider windows and
+// the disk block, so both stay on the exact same grid. `y` is the row top in
+// points.
+function drawBarRow(
+  ctx: DrawContext,
+  label: string,
+  pctValue: number,
+  rightLabel: string,
+  color: Rgb,
+  y: number,
+  variant: CardVariant,
+) {
+  const baseline = y + 14;
+  drawText(ctx, "s22", label, PAD_X, baseline, variant.muted);
+  const trackW = RIGHT_EDGE - RESET_COL_W - COL_GAP - PCT_COL_W - COL_GAP - TRACK_X;
+  const trackTop = y + 7.5;
+  fillRect(ctx, TRACK_X, trackTop, trackW, 6, 3, variant.track, variant.trackAlpha);
+  const pct = Math.max(0, Math.min(100, pctValue));
+  if (pct > 0) {
+    const fillW = Math.max(6, (trackW * pct) / 100);
+    fillRect(ctx, TRACK_X, trackTop, fillW, 6, 3, color, 1);
+  }
+  const pctText = `${Math.round(pct)}%`;
+  const pctW = textWidthPt(ctx, "b24", pctText);
+  drawText(ctx, "b24", pctText, RIGHT_EDGE - RESET_COL_W - COL_GAP - pctW, baseline, color);
+  const rightW = textWidthPt(ctx, "r22", rightLabel);
+  drawText(ctx, "r22", rightLabel, RIGHT_EDGE - rightW, baseline, variant.muted);
+}
+
+function drawDiskBlock(ctx: DrawContext, disk: CardDiskBlock, topPt: number, mode: "light" | "dark", variant: CardVariant) {
+  const color = parseHex(mode === "dark" ? disk.darkColor : disk.lightColor);
+  const y = topPt + DISK_PAD_Y;
+  drawBarRow(ctx, "Disk", disk.pct, disk.detail, color, y, variant);
+  if (disk.message) {
+    const baseline = y + ROW_H + MSG_GAP + 11;
+    const fitted = ellipsize(style(ctx, "r22"), disk.message, (W - PAD_X * 2) * ctx.scale);
+    drawText(ctx, "r22", fitted, PAD_X, baseline, variant.msg);
+  }
+}
+
 function drawProviderBlock(ctx: DrawContext, block: CardProviderBlock, topPt: number, mode: "light" | "dark", variant: CardVariant) {
   const color = parseHex(mode === "dark" ? block.darkColor : block.lightColor);
   let y = topPt + BLOCK_PAD_Y;
@@ -186,21 +252,7 @@ function drawProviderBlock(ctx: DrawContext, block: CardProviderBlock, topPt: nu
   y += HEAD_H;
 
   for (const row of block.rows) {
-    const baseline = y + 14;
-    drawText(ctx, "s22", row.label, PAD_X, baseline, variant.muted);
-    const trackW = RIGHT_EDGE - RESET_COL_W - COL_GAP - PCT_COL_W - COL_GAP - TRACK_X;
-    const trackTop = y + 7.5;
-    fillRect(ctx, TRACK_X, trackTop, trackW, 6, 3, variant.track, variant.trackAlpha);
-    const pct = Math.max(0, Math.min(100, row.pct));
-    if (pct > 0) {
-      const fillW = Math.max(6, (trackW * pct) / 100);
-      fillRect(ctx, TRACK_X, trackTop, fillW, 6, 3, color, 1);
-    }
-    const pctText = `${Math.round(pct)}%`;
-    const pctW = textWidthPt(ctx, "b24", pctText);
-    drawText(ctx, "b24", pctText, RIGHT_EDGE - RESET_COL_W - COL_GAP - pctW, baseline, color);
-    const resetW = textWidthPt(ctx, "r22", row.resetLabel);
-    drawText(ctx, "r22", row.resetLabel, RIGHT_EDGE - resetW, baseline, variant.muted);
+    drawBarRow(ctx, row.label, row.pct, row.resetLabel, color, y, variant);
     y += ROW_H;
   }
 
@@ -247,6 +299,14 @@ function drawCard(payload: UsageCardPayload, glyphs: GlyphSet, mode: "light" | "
       top += 1;
     }
   });
+
+  if (payload.disk) {
+    if (payload.providers.length > 0) {
+      fillRect(ctx, PAD_X, top, W - PAD_X * 2, 0.5, 0, variant.sep, variant.sepAlpha * 2);
+      top += 1;
+    }
+    drawDiskBlock(ctx, payload.disk, top, mode, variant);
+  }
 
   return {
     image: canvas.toPNGBase64(),

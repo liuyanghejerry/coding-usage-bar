@@ -218,13 +218,19 @@ Whatever fails -- no measurement, a missing asset, a PNG error -- the title fall
 
 SwiftBar only supports one bitmap image on a single stable title item, so Coding Usage Bar renders the full title into one transparent PNG at render time. That bitmap keeps each provider marker next to its own usage segment while avoiding SwiftBar's multi-title rotation behavior. The dropdown stays read-only and uses SwiftBar-native symbols, badges, progress meters, reset time, target range, data age, and warnings. SwiftBar is a host dependency; `coding-usage-bar uninstall` removes the Coding Usage Bar plugin but does not uninstall SwiftBar itself.
 
+### Disk headroom
+
+AI coding sessions spend disk as fast as they spend tokens: package caches, `node_modules`, build output, and session logs all land on the boot volume. The daemon therefore records root-volume free space (`fs.statfs`, in-process, no shell-out) into `status.json` on every collection, and the dropdown card gets a `Disk` bar below the providers: green while there is headroom, orange past 75% used, red past 90% with a cleanup hint. `coding-usage-bar status` prints the same reading as a summary line.
+
+Like the menu bar budget, disk data flows producer → `status.json` → display; a failed statfs keeps the previous reading rather than blanking the row, and the title never spends width on it.
+
 ## Runtime Files
 
 | Path | Purpose |
 |------|---------|
 | `~/.coding-usage-bar/app/` | Stable runtime copy used by launchd, Claude ingest hints, and SwiftBar |
 | `~/.coding-usage-bar/config.json` | Provider selection, default `["codex", "claude", "glm", "deepseek", "minimax", "kimi"]` |
-| `~/.coding-usage-bar/status.json` | Stable display-layer entry point, including the measured menu bar budget |
+| `~/.coding-usage-bar/status.json` | Stable display-layer entry point, including the measured menu bar budget and disk headroom |
 | `~/.coding-usage-bar/compact-mode` | Manual menu bar title width override; absent means `auto` |
 | `~/.coding-usage-bar/codex/latest.json` | Latest normalized Codex usage |
 | `~/.coding-usage-bar/claude/latest.json` | Latest normalized Claude usage after status line ingest |

@@ -2,7 +2,7 @@
 import { usageFromClaudeStatusLine, readStdin } from "./claude.js";
 import { install, uninstall } from "./install.js";
 import { saveUsage } from "./store.js";
-import { formatStatusRows, formatAnalysisDetail, formatIssues, formatProviderMeta } from "./format.js";
+import { formatStatusRows, formatAnalysisDetail, formatIssues, formatProviderMeta, formatDiskStatus } from "./format.js";
 import { loadDisplayStatusSnapshot, collectStatusSnapshot } from "./runtime.js";
 import { runDaemonOnce } from "./daemon.js";
 import { doctorHasFailures, formatDoctor, runDoctor, runDoctorFix } from "./doctor.js";
@@ -98,6 +98,10 @@ async function main() {
       const usages = snapshot.providers.map((provider) => provider.usage);
       const analyses = snapshot.providers.map((provider) => provider.analysis);
       console.log(formatStatusRows(usages, analyses));
+      const disk = formatDiskStatus(snapshot.disk);
+      if (disk) {
+        console.log(disk);
+      }
       console.log("");
       for (const analysis of analyses) {
         console.log(formatAnalysisDetail(analysis));

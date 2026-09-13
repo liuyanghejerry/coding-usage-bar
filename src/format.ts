@@ -1,4 +1,4 @@
-import { BurnAnalysis, StatusIssue, ProviderUsage, UsageWindow, StatusSnapshot } from "./types.js";
+import { BurnAnalysis, StatusIssue, ProviderUsage, UsageWindow, StatusSnapshot, DiskUsage } from "./types.js";
 
 export function formatDurationUntil(iso: string, now = new Date()) {
   const minutes = Math.max(0, Math.round((Date.parse(iso) - now.getTime()) / 60_000));
@@ -115,6 +115,25 @@ export function formatIssues(issues: StatusIssue[]) {
       return `${issue.severity.toUpperCase()} ${provider}${issue.code}: ${issue.message}`;
     })
     .join("\n");
+}
+
+export function formatBytes(bytes: number) {
+  const gb = 1024 ** 3;
+  const tb = 1024 ** 4;
+  if (bytes >= tb) {
+    return `${(bytes / tb).toFixed(1)} TB`;
+  }
+  if (bytes >= gb) {
+    return `${Math.round(bytes / gb)} GB`;
+  }
+  return `${Math.round(bytes / 1024 ** 2)} MB`;
+}
+
+export function formatDiskStatus(disk: DiskUsage | null | undefined) {
+  if (!disk) {
+    return "";
+  }
+  return `Disk      ${usageBar(disk.usedPercent)}  ${formatBytes(disk.availableBytes)} free of ${formatBytes(disk.totalBytes)}`;
 }
 
 export function formatProviderMeta(snapshot: StatusSnapshot) {

@@ -6,12 +6,13 @@ import { collectCodexUsage } from "./codex.js";
 import { readJsonFile } from "./fs-util.js";
 import { collectGlmUsage } from "./glm.js";
 import { collectDeepseekUsage } from "./deepseek.js";
+import { probeDiskUsage } from "./disk.js";
 import { probeDisplayGeometry } from "./display-probe.js";
 import { collectKimiUsage, resolveKimiConfig } from "./kimi.js";
 import { collectMinimaxUsage } from "./minimax.js";
 import { buildPaths } from "./paths.js";
 import { loadLatestUsage, loadSamples, saveUsage } from "./store.js";
-import { BurnAnalysis, BurnProfile, DisplayGeometry, ProviderUsage, RuntimePaths, StatusIssue, StatusSnapshot } from "./types.js";
+import { BurnAnalysis, BurnProfile, DiskUsage, DisplayGeometry, ProviderUsage, RuntimePaths, StatusIssue, StatusSnapshot } from "./types.js";
 import {
   createStatusSnapshot,
   loadStatusSnapshot,
@@ -275,6 +276,8 @@ export function commitCollectedStatusSnapshot(
     fixtureSamples?: Map<string, ProviderUsage[]>;
     // Test seam: pass null to skip the AppKit probe entirely.
     display?: DisplayGeometry | null;
+    // Test seam: pass null to simulate a failed statfs.
+    disk?: DiskUsage | null;
   } = {},
 ) {
   const paths = options.paths ?? buildPaths();
@@ -290,6 +293,9 @@ export function commitCollectedStatusSnapshot(
   // write. A failed probe keeps the previous reading rather than blanking it,
   // so one bad launchd context cannot demote the title tier.
   const display = options.display === undefined ? probeDisplayGeometry(now) : options.display;
+  // Same keep-previous policy as the display probe: a failed statfs must not
+  // blank the disk row for the next collection interval.
+  const disk = options.disk === undefined ? probeDiskUsage(now) : options.disk;
   return withStatusSnapshotLock(paths, () => {
     const existing = loadStatusSnapshot(paths);
     const cached = reconcileLatestUsages(usages, paths);
@@ -302,7 +308,11 @@ export function commitCollectedStatusSnapshot(
         snapshot = replaceStatusSnapshotUsage(snapshot, provider.usage, now);
       }
     }
-    snapshot = { ...snapshot, display: display ?? existing?.display ?? null };
+    snapshot = {
+      ...snapshot,
+      display: display ?? existing?.display ?? null,
+      disk: disk ?? existing?.disk ?? null,
+    };
     saveStatusSnapshot(snapshot, paths);
     return snapshot;
   });

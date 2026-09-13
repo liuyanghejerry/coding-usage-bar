@@ -523,6 +523,79 @@ test("renderMenuBar dropdown stays image-free without glyph atlases", () => {
   }
 });
 
+// --- disk headroom -----------------------------------------------------------
+// The disk row is producer-measured machine state (status.json), rendered by
+// both dropdown variants. It must never add dropdown images in fallback mode
+// and never split the composite card into multiple image items in card mode.
+
+const diskHealthy = {
+  mountPoint: "/",
+  totalBytes: 460 * 1024 ** 3,
+  availableBytes: 230 * 1024 ** 3,
+  usedPercent: 50,
+  measuredAt: "2026-05-08T00:00:00.000Z",
+};
+
+const diskCritical = {
+  ...diskHealthy,
+  availableBytes: 20 * 1024 ** 3,
+  usedPercent: 96,
+};
+
+function cardImageLine(output) {
+  return output.split("\n").slice(1).find((entry) => / image=/.test(entry));
+}
+
+test("renderMenuBar text fallback shows the disk row without any image", () => {
+  const paths = freshPaths();
+  resetGlyphSetCache();
+  try {
+    const output = renderMenuBar({ ...snapshot, disk: diskHealthy }, paths);
+    assert.match(output, /Disk  OK \| sfimage=internaldrive color=#111827,#F9FAFB size=14 badge=230\\ GB\\ free/);
+    assert.match(output, /disk {2}.*50%.*of 460 GB \| ansi=true font=Menlo size=12/);
+    assert.doesNotMatch(output, /Low disk space/);
+    const dropdownImageLines = output.split("\n").slice(1).filter((entry) => / image=/.test(entry));
+    assert.equal(dropdownImageLines.length, 0, "the disk row must not add dropdown images");
+
+    const critical = renderMenuBar({ ...snapshot, disk: diskCritical }, paths);
+    assert.match(critical, /Disk  Critical \| sfimage=internaldrive/);
+    assert.match(critical, /badge=20\\ GB\\ free/);
+    assert.match(critical, /Low disk space — clean up caches, node_modules, and Docker images\./);
+
+    const noDisk = renderMenuBar(snapshot, paths);
+    assert.doesNotMatch(noDisk, /^Disk {2}/m);
+    assert.doesNotMatch(noDisk, /^disk {2}/m);
+  } finally {
+    resetGlyphSetCache();
+  }
+});
+
+test("renderMenuBar card keeps the disk block inside the single composite image", () => {
+  const paths = freshPaths();
+  writeFixtureGlyphs(paths);
+  resetGlyphSetCache();
+  process.env.CODING_USAGE_BAR_APPEARANCE = "light";
+  try {
+    const withDisk = renderMenuBar({ ...snapshot, disk: diskHealthy }, paths, new Date("2026-05-08T01:00:00.000Z"));
+    const dropdownImageLines = withDisk.split("\n").slice(1).filter((entry) => / image=/.test(entry));
+    assert.equal(dropdownImageLines.length, 1, "the disk block must live inside the one card image");
+    // The disk block adds a separator plus one bar row to the card.
+    const withoutDiskHeight = pngInfoFromBase64(cardImageLine(renderMenuBar(snapshot, paths, new Date("2026-05-08T01:00:00.000Z"))).match(/image=([^ ]+)/)[1]).height;
+    const withDiskHeight = pngInfoFromBase64(dropdownImageLines[0].match(/image=([^ ]+)/)[1]).height;
+    assert.ok(withDiskHeight > withoutDiskHeight, `disk block must grow the card: ${withDiskHeight} vs ${withoutDiskHeight}`);
+
+    const again = renderMenuBar({ ...snapshot, disk: diskHealthy }, paths, new Date("2026-05-08T01:01:30.000Z"));
+    assert.equal(withDisk, again, "disk output must stay byte-identical while the snapshot is unchanged");
+
+    const critical = renderMenuBar({ ...snapshot, disk: diskCritical }, paths, new Date("2026-05-08T01:00:00.000Z"));
+    const criticalHeight = pngInfoFromBase64(cardImageLine(critical).match(/image=([^ ]+)/)[1]).height;
+    assert.ok(criticalHeight > withDiskHeight, "the low-disk hint must add a message row");
+  } finally {
+    process.env.CODING_USAGE_BAR_APPEARANCE = "light";
+    resetGlyphSetCache();
+  }
+});
+
 // --- verifyMenuBarSetup ------------------------------------------------------
 // End-to-end install acceptance. All environment probes and repair effects are
 // injected so the suite never depends on (or touches) the host's SwiftBar.
