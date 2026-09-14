@@ -81,6 +81,30 @@ test("legacy provider:state records are dropped and re-notify once", () => {
   assert.equal(shouldNotify(analysis, paths, new Date("2026-05-08T01:00:00.000Z")), false);
 });
 
+test("degenerate zero-usage window does not re-notify a persistent state", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "coding-usage-bar-home-"));
+  const paths = buildPaths(home);
+  markNotified(analysis, paths, new Date("2026-05-08T12:00:00.000Z"));
+  const drifting = (resetsAt) => ({
+    ...analysis,
+    fiveHour: { ...analysis.fiveHour, resetsAt },
+  });
+  // GLM reports resetsAt == observedAt on every poll while the 5h window is empty,
+  // so the recorded window never matches even after the cooldown floor passes.
+  assert.equal(
+    shouldNotify(drifting("2026-05-08T12:31:47.588Z"), paths, new Date("2026-05-08T12:31:47.588Z")),
+    false,
+  );
+  assert.equal(
+    shouldNotify(drifting("2026-05-08T13:06:07.710Z"), paths, new Date("2026-05-08T13:06:07.710Z")),
+    false,
+  );
+  // A genuinely future boundary still re-notifies after the cooldown floor.
+  const realWindow = drifting("2026-05-08T17:00:00.000Z");
+  assert.equal(shouldNotify(realWindow, paths, new Date("2026-05-08T12:20:00.000Z")), false);
+  assert.equal(shouldNotify(realWindow, paths, new Date("2026-05-08T12:31:00.000Z")), true);
+});
+
 test("7d-only limit risk remains eligible for notification", () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "coding-usage-bar-home-"));
   const paths = buildPaths(home);

@@ -49,6 +49,9 @@ function cooldownMinutes(profile: "low" | "high") {
 // Notify only on a state transition or when the 5h window resets while the
 // alert persists — never on a periodic cooldown. The cooldown only acts as a
 // per-provider floor between notifications so a flapping state cannot spam.
+// A zero-usage GLM 5h window reports resetsAt == observedAt, drifting on every
+// poll; without a genuinely future boundary there is no window reset to react
+// to, so a drifting or already-due resetAt must not re-fire the alert.
 export function shouldNotify(
   analysis: BurnAnalysis,
   paths: RuntimePaths = buildPaths(),
@@ -63,8 +66,10 @@ export function shouldNotify(
   }
   if (previous.state === analysis.state) {
     const resetAt = analysis.fiveHour?.resetsAt;
+    const resetMs = resetAt ? Date.parse(resetAt) : NaN;
+    const windowResetPending = Number.isFinite(resetMs) && resetMs > now.getTime() + 60_000;
     const sameWindow = !previous.resetAt || !resetAt || previous.resetAt === resetAt;
-    if (sameWindow) {
+    if (sameWindow || !windowResetPending) {
       return false;
     }
   }

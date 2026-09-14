@@ -61,9 +61,6 @@ export function usageFromCodexRateLimits(
     return null;
   }
   const record = rateLimits as Record<string, unknown>;
-  if (typeof record.limit_name === "string") {
-    return null;
-  }
 
   const windows = [record.primary, record.secondary]
     .map((raw): UsageWindow | null => {
@@ -97,34 +94,59 @@ export function usageFromCodexRateLimits(
   };
 }
 
-function latestCandidateFromFile(file: string): CodexCandidate | null {
-  const stat = fs.statSync(file);
-  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+const TAIL_CHUNK_BYTES = 1_048_576;
 
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const line = lines[i]?.trim();
-    if (!line || !line.includes("rate_limits")) {
-      continue;
-    }
-
-    try {
-      const parsed = JSON.parse(line) as Record<string, unknown>;
-      const payload = parsed.payload as Record<string, unknown> | undefined;
-      const rateLimits = payload?.rate_limits ?? parsed.rate_limits;
-      const observedMs = parseObservedMs(parsed.timestamp ?? parsed.ts, stat.mtimeMs);
-      const usage = usageFromCodexRateLimits(rateLimits, {
-        source: file,
-        observedAt: new Date(observedMs).toISOString(),
-      });
-      if (usage) {
-        return { usage, observedMs };
-      }
-    } catch {
-      continue;
-    }
+function candidateFromLine(line: string | undefined, mtimeMs: number, file: string): CodexCandidate | null {
+  const trimmed = line?.trim();
+  if (!trimmed || !trimmed.includes("rate_limits")) {
+    return null;
   }
 
-  return null;
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    const payload = parsed.payload as Record<string, unknown> | undefined;
+    const rateLimits = payload?.rate_limits ?? parsed.rate_limits;
+    const observedMs = parseObservedMs(parsed.timestamp ?? parsed.ts, mtimeMs);
+    const usage = usageFromCodexRateLimits(rateLimits, {
+      source: file,
+      observedAt: new Date(observedMs).toISOString(),
+    });
+    return usage ? { usage, observedMs } : null;
+  } catch {
+    return null;
+  }
+}
+
+// Rollouts can grow past Node's max string length (a long-lived session easily
+// reaches >1GB), so read the file backwards in chunks and stop at the newest
+// parseable rate_limits line instead of loading the whole file into memory.
+function latestCandidateFromFile(file: string): CodexCandidate | null {
+  const stat = fs.statSync(file);
+  const fd = fs.openSync(file, "r");
+  try {
+    const buffer = Buffer.alloc(TAIL_CHUNK_BYTES);
+    let position = stat.size;
+    let carry = "";
+
+    while (position > 0) {
+      const readBytes = Math.min(TAIL_CHUNK_BYTES, position);
+      position -= readBytes;
+      fs.readSync(fd, buffer, 0, readBytes, position);
+      const lines = (buffer.toString("utf8", 0, readBytes) + carry).split(/\r?\n/);
+      carry = lines.shift() ?? "";
+
+      for (let i = lines.length - 1; i >= 0; i -= 1) {
+        const candidate = candidateFromLine(lines[i], stat.mtimeMs, file);
+        if (candidate) {
+          return candidate;
+        }
+      }
+    }
+
+    return candidateFromLine(carry, stat.mtimeMs, file);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 export function collectCodexUsage(codexHome = path.join(process.env.HOME ?? "", ".codex")) {

@@ -119,6 +119,86 @@ test("collectCodexUsage accepts numeric-string window_minutes from the latest pa
   assert.equal(usage.windows[0].windowMinutes, 10080);
 });
 
+test("collectCodexUsage accepts named limits from newer Codex rollouts", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coding-usage-bar-codex-"));
+  fs.mkdirSync(path.join(dir, "sessions"), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "sessions", "rollout.jsonl"),
+    [
+      JSON.stringify({
+        timestamp: "2026-09-14T00:32:41.886Z",
+        payload: {
+          rate_limits: {
+            limit_id: "codex",
+            limit_name: null,
+            primary: { used_percent: 3, window_minutes: 300, resets_at: 1789380761 },
+            secondary: { used_percent: 70, window_minutes: 10080, resets_at: 1789806204 },
+            plan_type: "pro",
+          },
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-09-14T00:53:55.932Z",
+        payload: {
+          rate_limits: {
+            limit_id: "codex_bengalfox",
+            limit_name: "GPT-5.3-Codex-Spark",
+            primary: { used_percent: 0, window_minutes: 300, resets_at: 1789365227 },
+            secondary: { used_percent: 0, window_minutes: 10080, resets_at: 1789952027 },
+            credits: { has_credits: false, unlimited: false, balance: "0" },
+            individual_limit: null,
+            spend_control_reached: null,
+            plan_type: "pro",
+            rate_limit_reached_type: null,
+          },
+        },
+      }),
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const usage = collectCodexUsage(dir);
+  assert.equal(usage.observedAt, "2026-09-14T00:53:55.932Z");
+  assert.equal(usage.planType, "pro");
+  assert.deepEqual(
+    usage.windows.map((window) => window.name),
+    ["five_hour", "seven_day"],
+  );
+  assert.equal(usage.windows[0].usedPercent, 0);
+});
+
+test("collectCodexUsage scans a large rollout backwards in chunks", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coding-usage-bar-codex-"));
+  fs.mkdirSync(path.join(dir, "sessions"), { recursive: true });
+  const filler = JSON.stringify({
+    timestamp: "2026-09-14T00:54:00.000Z",
+    type: "event_msg",
+    payload: { type: "agent_message", message: "x".repeat(1024) },
+  });
+  const tailPadding = `${filler}\n`.repeat(1200);
+  fs.writeFileSync(
+    path.join(dir, "sessions", "rollout.jsonl"),
+    `${JSON.stringify({
+      timestamp: "2026-09-14T00:53:55.932Z",
+      payload: {
+        rate_limits: {
+          limit_id: "codex_bengalfox",
+          limit_name: "GPT-5.3-Codex-Spark",
+          primary: { used_percent: 4, window_minutes: 300, resets_at: 1789365227 },
+          secondary: { used_percent: 40, window_minutes: 10080, resets_at: 1789952027 },
+          plan_type: "pro",
+        },
+      },
+    })}\n${tailPadding}`,
+    "utf8",
+  );
+
+  const usage = collectCodexUsage(dir);
+  assert.equal(usage.observedAt, "2026-09-14T00:53:55.932Z");
+  assert.equal(usage.windows[0].usedPercent, 4);
+});
+
 test("collectCodexUsage ignores non-session jsonl files", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coding-usage-bar-codex-"));
   fs.mkdirSync(path.join(dir, "sessions"), { recursive: true });
