@@ -129,6 +129,19 @@ export function formatBytes(bytes: number) {
   return `${Math.round(bytes / 1024 ** 2)} MB`;
 }
 
+// Absolute local timestamp for announcements that already happened (the
+// future-facing formatResetTime would render them as "due").
+export function formatLocalTime(iso: string, now = new Date()) {
+  const atMs = Date.parse(iso);
+  if (!Number.isFinite(atMs)) {
+    return "?";
+  }
+  const at = new Date(atMs);
+  const sameYear = at.getFullYear() === now.getFullYear();
+  const stamp = `${at.getMonth() + 1}/${at.getDate()} ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  return sameYear ? stamp : `${at.getFullYear()}/${stamp}`;
+}
+
 export function formatDiskStatus(disk: DiskUsage | null | undefined) {
   if (!disk) {
     return "";

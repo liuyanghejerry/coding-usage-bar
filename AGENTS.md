@@ -44,6 +44,9 @@ Coding Usage Bar 是独立开源项目，也是本工具的唯一事实源。它
 - SwiftBar 插件如果需要更实时，应该先执行 `coding-usage-bar daemon --once` 更新 `status.json`，再执行 `coding-usage-bar menubar render`；不要把采集逻辑塞进 `renderMenuBar()`。
 - `loadDisplayStatusSnapshot()` 在 `status.json` 不存在时不能 fallback 到采集原始源；应返回 `STATUS_MISSING`，提示用户运行 producer。
 - 菜单栏宽度预算（`display`）和磁盘余量（`disk`）都是 producer 侧在采集周期内测量并写入 `status.json` 的机器状态；展示层只读不测。磁盘用进程内 `fs.statfsSync("/")`（bavail，与 df 一致），不 spawn 任何命令；探测失败时保留上一次读数，不能清空展示。
+- Codex Reset 追踪（用户可见文案统一写 "Tibo Reset"，社区对 Thibault Sottiaux 宣布的 Codex 配额重置的称呼；不要用裸 "Reset"，避免与 5h/7d 窗口自动重置混淆）数据是 producer 侧数据：`codex-resets.ts` 在采集周期内（仅 codex 被监控时）拉取 `https://codex-resets.com/api/v1/status` 并写入 `status.json`，展示层只读。拉取失败必须静默并保留上次读数，绝不能影响 usage 采集或清空 reset 展示。
+- codex-resets.com 要求展示其数据时必须带出处链接：dropdown 的 `Data from codex-resets.com`（`href`）行不能删。上游 watch 是 AI 预测，不是 OpenAI 官方承诺，文案不得暗示官方性。
+- reset 通知的状态记录在 `notifications.json` 的 `codex-reset` 键，按事件 id/observedAt 只在真实转移时通知（首次观察只对未来的 scheduled reset 提醒一次）；改通知逻辑时保持"每个真实上游事件至多一条通知"和 dry-run 不写状态这两个性质，并有测试覆盖。
 - 磁盘余量只进 dropdown 卡片（`UsageCardPayload.disk`）和文本 fallback 行，不进菜单栏标题——标题宽度预算装不下更多段。75% 变黄、90% 变红并附清理提示；阈值常量在 `disk.ts`。
 - 如果发现 stale，先检查 producer 是否生成了新的 `status.json`，以及 collector 是否能从 session 数据源读到最新 `rate_limits`；不要用“让展示层自己采集”绕过问题。
 - Codex collector 属于 producer 侧，可以优化扫描范围和排序。它应只扫描 `~/.codex/sessions` 与 `~/.codex/archived_sessions`，不要递归整个 `~/.codex`，避免读到 `.tmp`、插件 fixture 或其他非 session JSONL。

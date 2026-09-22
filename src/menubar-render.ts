@@ -221,6 +221,10 @@ export interface TitleSegment {
   bars: Array<{ pct: number; lightColor: string; darkColor: string }>;
   iconPath: string | null;
   iconPathDark: string | null;
+  // Optional event marker (e.g. an upcoming Codex reset) rendered as a small
+  // dot after the bars. Only present while the event is live, so the extra
+  // few points of width appear and disappear with the signal itself.
+  resetDot?: { lightColor: string; darkColor: string } | null;
 }
 
 export interface TitleVariant {
@@ -267,11 +271,13 @@ function drawTitle(payload: TitlePayload, variant: TitleVariant, mode: "light" |
   const barRadius = payload.barRadius * scale;
   const barMinFill = (payload.barMinFill || barRadius * 2) * scale;
   const dividerW = 1 * scale;
+  const dotGap = 3 * scale;
+  const dotD = 5 * scale;
 
   let width = paddingX * 2;
   payload.segments.forEach((seg, idx) => {
     if (idx > 0) width += segmentGap + dividerW + segmentGap;
-    width += (seg.iconPath ? iconSize + iconBarGap : 0) + barWidth;
+    width += (seg.iconPath ? iconSize + iconBarGap : 0) + barWidth + (seg.resetDot ? dotGap + dotD : 0);
   });
   width = Math.max(payload.minWidth * scale, width);
 
@@ -310,6 +316,11 @@ function drawTitle(payload: TitlePayload, variant: TitleVariant, mode: "light" |
       barY -= barHeight + barGap;
     }
     x += barWidth;
+    if (seg.resetDot) {
+      const dotColor = parseHex(mode === "dark" ? seg.resetDot.darkColor : seg.resetDot.lightColor);
+      canvas.fillRoundedRect(x + dotGap, Math.floor((height - dotD) / 2), dotD, dotD, dotD / 2, dotColor, 1);
+      x += dotGap + dotD;
+    }
   });
 
   return {

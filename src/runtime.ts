@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readConfig } from "./config.js";
 import { collectCodexUsage } from "./codex.js";
+import { fetchCodexResetStatus } from "./codex-resets.js";
 import { readJsonFile } from "./fs-util.js";
 import { collectGlmUsage } from "./glm.js";
 import { collectDeepseekUsage } from "./deepseek.js";
@@ -12,7 +13,7 @@ import { collectKimiUsage, resolveKimiConfig } from "./kimi.js";
 import { collectMinimaxUsage } from "./minimax.js";
 import { buildPaths } from "./paths.js";
 import { loadLatestUsage, loadSamples, saveUsage } from "./store.js";
-import { BurnAnalysis, BurnProfile, DiskUsage, DisplayGeometry, ProviderUsage, RuntimePaths, StatusIssue, StatusSnapshot } from "./types.js";
+import { BurnAnalysis, BurnProfile, CodexResetStatus, DiskUsage, DisplayGeometry, ProviderUsage, RuntimePaths, StatusIssue, StatusSnapshot } from "./types.js";
 import {
   createStatusSnapshot,
   loadStatusSnapshot,
@@ -32,12 +33,20 @@ export function loadFixtureUsages(fixturesDir: string): ProviderUsage[] {
     .filter((item): item is ProviderUsage => item !== null);
 }
 
+// Fixture mirror of the live codex-resets.com payload, already normalized to
+// the CodexResetStatus shape; lets --fixtures exercise the reset display and
+// notifications without network access.
+export function loadFixtureCodexReset(fixturesDir = FIXTURES_DIR): CodexResetStatus | null {
+  return readJsonFile<CodexResetStatus>(path.join(fixturesDir, "codex", "reset.json"));
+}
+
 export async function collectLocalState(options: { fixtures?: boolean } = {}): Promise<{
   usages: ProviderUsage[];
   issues: StatusIssue[];
+  codexReset: CodexResetStatus | null;
 }> {
   if (options.fixtures) {
-    return { usages: loadFixtureUsages(FIXTURES_DIR), issues: [] };
+    return { usages: loadFixtureUsages(FIXTURES_DIR), issues: [], codexReset: loadFixtureCodexReset() };
   }
 
   const paths = buildPaths();
@@ -45,6 +54,7 @@ export async function collectLocalState(options: { fixtures?: boolean } = {}): P
   const monitored = new Set(config.providers);
   const usages: ProviderUsage[] = [];
   const issues: StatusIssue[] = [];
+  let codexReset: CodexResetStatus | null = null;
 
   if (monitored.has("codex")) {
     try {
@@ -70,6 +80,10 @@ export async function collectLocalState(options: { fixtures?: boolean } = {}): P
         });
       }
     }
+    // Reset tracking rides the same producer cycle as Codex usage. A failed
+    // fetch returns null and the commit step keeps the previous reading, so a
+    // codex-resets.com outage degrades silently instead of erasing data.
+    codexReset = await fetchCodexResetStatus();
   }
 
   if (monitored.has("claude")) {
@@ -230,7 +244,7 @@ export async function collectLocalState(options: { fixtures?: boolean } = {}): P
     }
   }
 
-  return { usages, issues };
+  return { usages, issues, codexReset };
 }
 
 export async function collectLocalUsages(options: { fixtures?: boolean } = {}): Promise<ProviderUsage[]> {
@@ -278,6 +292,9 @@ export function commitCollectedStatusSnapshot(
     display?: DisplayGeometry | null;
     // Test seam: pass null to simulate a failed statfs.
     disk?: DiskUsage | null;
+    // This cycle's reset fetch. Null (failed fetch or codex unmonitored)
+    // keeps the previous reading instead of blanking it.
+    codexReset?: CodexResetStatus | null;
   } = {},
 ) {
   const paths = options.paths ?? buildPaths();
@@ -312,6 +329,7 @@ export function commitCollectedStatusSnapshot(
       ...snapshot,
       display: display ?? existing?.display ?? null,
       disk: disk ?? existing?.disk ?? null,
+      codexReset: options.codexReset ?? existing?.codexReset ?? null,
     };
     saveStatusSnapshot(snapshot, paths);
     return snapshot;
@@ -319,15 +337,15 @@ export function commitCollectedStatusSnapshot(
 }
 
 export async function collectStatusSnapshot(options: { fixtures?: boolean } = {}) {
-  const { usages, issues } = await collectLocalState(options);
+  const { usages, issues, codexReset } = await collectLocalState(options);
   const profile = readProfile();
   const fixtureSamples = options.fixtures
     ? new Map<string, ProviderUsage[]>(usages.map((usage) => [usage.provider, loadFixtureSamples(usage.provider)]))
     : undefined;
   if (!options.fixtures) {
-    return commitCollectedStatusSnapshot(usages, issues, { profile });
+    return commitCollectedStatusSnapshot(usages, issues, { profile, codexReset });
   }
-  return createStatusSnapshot(usages, profile, { fixtureSamples, issues });
+  return createStatusSnapshot(usages, profile, { fixtureSamples, issues, codexReset });
 }
 
 export function loadDisplayStatusSnapshot(

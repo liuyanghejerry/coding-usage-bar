@@ -4,6 +4,13 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { ensureDir, isFile } from "./fs-util.js";
 import { DISK_ALERT_USED_PERCENT, DISK_WARNING_USED_PERCENT } from "./disk.js";
+import {
+  CODEX_RESETS_CREDIT_LABEL,
+  CODEX_RESETS_CREDIT_URL,
+  codexResetCardNote,
+  codexResetMarkLevel,
+  codexResetSummary,
+} from "./codex-resets.js";
 import { formatBytes, formatProviderLabel, formatResetTime } from "./format.js";
 import { buildPaths } from "./paths.js";
 import { stableNodeExecutable } from "./node-runtime.js";
@@ -11,7 +18,7 @@ import { loadDisplayStatusSnapshot } from "./runtime.js";
 import { renderTitleImage } from "./menubar-render.js";
 import { loadGlyphSet, GlyphSet } from "./glyphs.js";
 import { renderUsageCard, UsageCardPayload, CardProviderBlock, CardDiskBlock } from "./menubar-card.js";
-import { BurnState, DiskUsage, RuntimePaths, StatusSnapshot } from "./types.js";
+import { BurnState, CodexResetStatus, DiskUsage, RuntimePaths, StatusSnapshot } from "./types.js";
 
 const MARKER = "coding-usage-bar managed SwiftBar plugin";
 const SWIFTBAR_APP_PATHS = ["/Applications/SwiftBar.app", path.join(process.env.HOME ?? "", "Applications", "SwiftBar.app")];
@@ -591,7 +598,16 @@ function providerIconPath(provider: string) {
 // 2.1.x, which would e.g. put the white dark-mode GLM mark on a light menu
 // bar. The dark title variant only differs in bar tones and dark logo marks,
 // but an inverted pick still degrades it.
-function titleImageValue(providers: StatusSnapshot["providers"], prefersDark: boolean) {
+function titleImageValue(
+  providers: StatusSnapshot["providers"],
+  prefersDark: boolean,
+  codexReset: CodexResetStatus | null | undefined,
+  now: Date,
+) {
+  const markLevel = codexResetMarkLevel(codexReset, now);
+  const [markLight, markDark] = markLevel
+    ? (markLevel === "alert" ? ALERT_COLOR : WARNING_COLOR).split(",")
+    : [null, null];
   const segments = providers.map((provider) => {
     const p = provider.usage.provider;
     const darkAsset = PROVIDER_ICON_DARK_ASSET[p];
@@ -601,6 +617,9 @@ function titleImageValue(providers: StatusSnapshot["providers"], prefersDark: bo
       bars: titleBars(provider),
       iconPath: providerIconPath(p),
       iconPathDark: darkPath && fs.existsSync(darkPath) ? darkPath : null,
+      resetDot: p === "codex" && markLight && markDark
+        ? { lightColor: markLight, darkColor: markDark }
+        : null,
     };
   });
   if (segments.length === 0) {
@@ -740,12 +759,16 @@ function titleLine(
   title: string,
   topState: BurnState,
   prefersDark: boolean,
+  codexReset: CodexResetStatus | null | undefined,
+  now: Date,
 ) {
+  const resetSummary = codexResetSummary(codexReset, now);
+  const tooltip = resetSummary ? `${title} │ Tibo Reset: ${resetSummary}` : title;
   const iconLine = () => line("", {
     sfimage: "flame.fill",
     sfcolor: STATE_COLOR[topState],
     dropdown: false,
-    tooltip: title,
+    tooltip,
   });
   if (tier === "icon") {
     return iconLine();
@@ -753,20 +776,20 @@ function titleLine(
 
   const urgent = tier === "single" ? mostUrgentProvider(providers) : undefined;
   const shown = urgent ? [urgent] : providers;
-  const image = titleImageValue(shown, prefersDark);
+  const image = titleImageValue(shown, prefersDark, codexReset, now);
   if (image) {
     return line("", {
       image: image.image,
       width: image.width,
       height: image.height,
       dropdown: false,
-      tooltip: title,
+      tooltip,
     });
   }
 
   const text = urgent ? titleSegment(urgent) : title;
   return text
-    ? line(text, { ...titleIconParams(), dropdown: false })
+    ? line(text, { ...titleIconParams(), dropdown: false, tooltip })
     : iconLine();
 }
 
@@ -861,7 +884,11 @@ function observedUpdatedLabel(item: StatusSnapshot["providers"][number], now: Da
   return `updated ${sameDay ? clock : `${observed.getMonth() + 1}/${observed.getDate()} ${clock}`}`;
 }
 
-function cardProviderBlock(item: StatusSnapshot["providers"][number], now: Date): CardProviderBlock {
+function cardProviderBlock(
+  item: StatusSnapshot["providers"][number],
+  now: Date,
+  codexReset: CodexResetStatus | null | undefined,
+): CardProviderBlock {
   const providerId = item.usage.provider;
   const balanceOnly = Boolean(item.usage.balance && item.usage.windows.length === 0);
   const blocked = Boolean(item.usage.blocked);
@@ -910,7 +937,9 @@ function cardProviderBlock(item: StatusSnapshot["providers"][number], now: Date)
     darkColor,
     headline: headlinePct ? `${Math.round(headlinePct.usedPercent)}%` : STATE_LABEL[item.analysis.state],
     rows,
-    note: null,
+    // Codex carries the reset tracker line (scheduled / watch / last reset);
+    // other providers have no reset signal to show.
+    note: providerId === "codex" ? codexResetCardNote(codexReset, now) : null,
     message: shortCardMessage(item),
     updated: observedUpdatedLabel(item, now),
   };
@@ -963,7 +992,7 @@ function usageCardValue(
   const payload: UsageCardPayload = {
     profile: snapshot.profile.toUpperCase(),
     updatedLabel: cardUpdatedLabel(snapshot),
-    providers: providers.map((item) => cardProviderBlock(item, now)),
+    providers: providers.map((item) => cardProviderBlock(item, now, snapshot.codexReset)),
     disk: snapshot.disk ? cardDiskBlock(snapshot.disk) : null,
     scale: TITLE_IMAGE_SCALE,
   };
@@ -1022,7 +1051,7 @@ export function renderMenuBar(snapshot: StatusSnapshot = loadDisplayStatusSnapsh
   const topState = mostUrgentProvider(providers)?.analysis.state ?? "RAW";
   const prefersDark = systemPrefersDark();
   const lines = [
-    titleLine(tier, providers, title, topState, prefersDark),
+    titleLine(tier, providers, title, topState, prefersDark, snapshot.codexReset, now),
     "---",
   ];
 
@@ -1088,6 +1117,12 @@ export function renderMenuBar(snapshot: StatusSnapshot = loadDisplayStatusSnapsh
       if (item.usage.blocked) {
         lines.push(muted(`Blocked  ${item.usage.blocked.reason}. 5h/7d numbers above still reflect the window quotas.`));
       }
+      if (item.usage.provider === "codex") {
+        const resetSummary = codexResetSummary(snapshot.codexReset, now);
+        if (resetSummary) {
+          lines.push(muted(`Tibo Reset  ${resetSummary}`));
+        }
+      }
       lines.push(muted(targetLabel(item)));
       lines.push(line(item.analysis.message, { color: MUTED_COLOR, size: 12, length: 84 }));
       lines.push("---");
@@ -1138,6 +1173,16 @@ export function renderMenuBar(snapshot: StatusSnapshot = loadDisplayStatusSnapsh
 
   if (visibleIssues.length > 0) {
     lines.push("---");
+  }
+  // The reset tracker asks for a visible credit link wherever its data is
+  // displayed; this text row is the link (no image, so no rebuild-storm cost).
+  if (snapshot.codexReset) {
+    lines.push(line(CODEX_RESETS_CREDIT_LABEL, {
+      href: CODEX_RESETS_CREDIT_URL,
+      color: MUTED_COLOR,
+      size: 12,
+      sfimage: "link",
+    }));
   }
   lines.push(modeLine);
   lines.push(line("Refresh now", {

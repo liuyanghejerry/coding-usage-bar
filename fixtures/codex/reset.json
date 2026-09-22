@@ -1,0 +1,41 @@
+{
+  "latestReset": {
+    "id": "2098685367058612394",
+    "resetType": "regular",
+    "announcedAt": "2026-05-02T08:09:17.000Z",
+    "scheduledFor": null,
+    "text": "Reset all propagated. Sweet dreams.",
+    "sourceType": "x_post",
+    "sourceAuthor": "thsottiaux",
+    "sourceUrl": "https://x.com/thsottiaux/status/2098685367058612394"
+  },
+  "scheduledReset": {
+    "id": "2102254445082116335",
+    "resetType": "regular",
+    "announcedAt": "2026-05-07T22:31:32.000Z",
+    "scheduledFor": "2026-05-08T06:59:00.000Z",
+    "text": "I promised a reset for Friday. Among some other things. See you soon.",
+    "sourceType": "x_post",
+    "sourceAuthor": "thsottiaux",
+    "sourceUrl": "https://x.com/thsottiaux/status/2102254445082116335"
+  },
+  "activeWatch": {
+    "level": "elevated",
+    "resetChancePercent": 55,
+    "forecastWindow": "next 24h",
+    "observedAt": "2026-05-07T20:00:00.000Z",
+    "expiresAt": "2026-05-08T20:00:00.000Z",
+    "text": "Chatter points at a possible Friday reset.",
+    "sourceType": "observed",
+    "sourceAuthor": null,
+    "sourceUrl": "https://codex-resets.com"
+  },
+  "stats": {
+    "total": 12,
+    "lastResetAt": "2026-05-02T08:09:17.000Z",
+    "daysSinceLast": 5.7,
+    "avgIntervalDays": 6.9
+  },
+  "observedAt": "2026-05-08T00:00:00.000Z",
+  "generatedAt": "2026-05-08T00:00:00.000Z"
+}

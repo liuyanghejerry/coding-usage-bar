@@ -3,6 +3,7 @@ import { usageFromClaudeStatusLine, readStdin } from "./claude.js";
 import { install, uninstall } from "./install.js";
 import { saveUsage } from "./store.js";
 import { formatStatusRows, formatAnalysisDetail, formatIssues, formatProviderMeta, formatDiskStatus } from "./format.js";
+import { formatCodexResetStatusLine } from "./codex-resets.js";
 import { loadDisplayStatusSnapshot, collectStatusSnapshot } from "./runtime.js";
 import { runDaemonOnce } from "./daemon.js";
 import { doctorHasFailures, formatDoctor, runDoctor, runDoctorFix } from "./doctor.js";
@@ -101,6 +102,10 @@ async function main() {
       const disk = formatDiskStatus(snapshot.disk);
       if (disk) {
         console.log(disk);
+      }
+      const resetLine = formatCodexResetStatusLine(snapshot.codexReset);
+      if (resetLine) {
+        console.log(resetLine);
       }
       console.log("");
       for (const analysis of analyses) {

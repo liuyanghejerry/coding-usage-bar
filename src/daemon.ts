@@ -1,5 +1,5 @@
 import { collectStatusSnapshot } from "./runtime.js";
-import { markNotified, markRecovered, sendNotification, shouldNotify } from "./notifier.js";
+import { markNotified, markRecovered, runCodexResetNotifications, sendNotification, shouldNotify } from "./notifier.js";
 
 export async function runDaemonOnce(options: { dryRun?: boolean } = {}) {
   const snapshot = await collectStatusSnapshot();
@@ -17,6 +17,10 @@ export async function runDaemonOnce(options: { dryRun?: boolean } = {}) {
       markNotified(analysis);
     }
   }
+
+  // Reset announcements are rare but time-sensitive; the transition checks
+  // keep them to one notification per genuine upstream event.
+  messages.push(...runCodexResetNotifications(snapshot.codexReset, options));
 
   return messages.length ? messages : ["No notification needed."];
 }

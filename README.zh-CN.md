@@ -47,6 +47,7 @@ coding-usage-bar status
 
 - 一个菜单栏同时查看多个 AI 编程 Provider
 - 按账户实际下发的滚动窗口分析使用节奏；部分 Codex 账户当前只提供 7d
+- Tibo Reset 追踪：接入 [Codex Resets](https://codex-resets.com) 公共 API，追踪社区所称的 "Tibo Reset"（Thibault Sottiaux 宣布的 Codex 配额重置）。预告、执行和 watch 出现/升级时发送醒目的专用通知，菜单栏 Codex 段显示标记点，下拉卡片显示进展；文案统一用 "Tibo Reset"，避免与 5h/7d 窗口自动重置混淆
 - 下拉卡片同时展示启动卷磁盘余量（75% 变黄、90% 变红并提示清理），`status` 命令输出同一读数
 - Claude Code、Codex 本地优先，不依赖额外遥测服务
 - 展示层只读稳定的 `status.json`，不会在打开菜单时临时访问数据源

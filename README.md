@@ -98,6 +98,17 @@ Without this integration, Claude usage stays unavailable in Coding Usage Bar. Cl
 
 Coding Usage Bar reads Codex `payload.rate_limits` from local `~/.codex` JSONL session data. It displays the windows the current account actually reports; some accounts expose both 5h and 7d windows, while others currently expose only 7d. If no rate-limit data exists, run Codex CLI or Codex App once and complete a normal interaction.
 
+### Tibo Reset tracking
+
+OpenAI occasionally resets Codex quota windows on short notice; the community calls these "Tibo resets" after Thibault Sottiaux, who announces them. The daemon polls the free, keyless [Codex Resets](https://codex-resets.com) public API once per collection cycle and writes the result into `status.json` (`codexReset`), so the same producer → status.json → display split applies. All user-facing labels say "Tibo Reset" (never a bare "Reset") to avoid confusion with the automatic 5h/7d window resets:
+
+- **Menu bar title:** while a reset is scheduled (or a strong/elevated watch is active), the Codex segment grows a red/amber marker dot, and the title tooltip carries the reset summary.
+- **Dropdown card:** the Codex block gains a reset line (scheduled time, watch level/chance, or days since the last reset); the text-only fallback gets a `Reset ...` row instead.
+- **`coding-usage-bar status`:** prints a one-line `Tibo Reset  scheduled ...` summary.
+- **Notifications:** the daemon sends a dedicated, event-grade card when a reset announcement is published, when a reset is observed as executed, or when a reset watch appears or escalates — at most one notification per genuine upstream event, and silent for data that was already current on first run.
+
+A failed fetch is silent and keeps the previous reading; the dropdown credits the source with a `Data from codex-resets.com` link. Watch data upstream is an AI-classified forecast, not an official OpenAI commitment.
+
 ## GLM (Zhipu AI)
 
 Coding Usage Bar calls the Zhipu AI quota API (`GET /api/monitor/usage/quota/limit`) to read 5h and 7d usage windows. You need to set `glm.apiKey` in `~/.coding-usage-bar/config.json`:
@@ -247,6 +258,8 @@ Like the menu bar budget, disk data flows producer → `status.json` → display
 On macOS, Coding Usage Bar uses `terminal-notifier` when available and attaches a dynamic data card as the notification content image.
 
 The card shows provider, the available rolling-window usage, state label, target range, and reset countdown. This avoids asking users to infer meaning from a red/yellow icon.
+
+Codex reset events get their own card style (red `RESET INCOMING` / amber `RESET WATCH` / green `RESET DONE`) so a rare, time-sensitive announcement does not look like another burn-rate blip.
 
 After an interactive install, Coding Usage Bar may ask whether you want to star the repository. The prompt defaults to **No** (`[y/N]`) and only uses an already authenticated GitHub CLI after explicit `y`/`yes` consent.
 

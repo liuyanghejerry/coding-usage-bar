@@ -148,6 +148,56 @@ export interface DiskUsage {
   measuredAt: string;
 }
 
+// Codex Resets tracker data (codex-resets.com), fetched producer-side once per
+// collection cycle. The service watches for reset announcements and observed
+// resets of the Codex 5h/7d quota windows. Like DisplayGeometry and DiskUsage
+// this is producer-only data: the display layer reads it from status.json and
+// never talks to the network.
+export type CodexResetWatchLevel = "elevated" | "strong";
+export type CodexResetSourceType = "x_post" | "observed";
+
+export interface CodexResetEvent {
+  id: string;
+  resetType: "regular" | "banked";
+  announcedAt: string;
+  // Scheduled announcements only; executed resets are always null.
+  scheduledFor: string | null;
+  text: string;
+  sourceType: CodexResetSourceType | null;
+  sourceAuthor: string | null;
+  sourceUrl: string | null;
+}
+
+export interface CodexResetWatch {
+  level: CodexResetWatchLevel;
+  resetChancePercent: number | null;
+  forecastWindow: string;
+  observedAt: string;
+  expiresAt: string;
+  text: string;
+  sourceType: CodexResetSourceType | null;
+  sourceAuthor: string | null;
+  sourceUrl: string | null;
+}
+
+export interface CodexResetStats {
+  total: number;
+  lastResetAt: string | null;
+  daysSinceLast: number | null;
+  avgIntervalDays: number | null;
+}
+
+export interface CodexResetStatus {
+  latestReset: CodexResetEvent | null;
+  scheduledReset: CodexResetEvent | null;
+  activeWatch: CodexResetWatch | null;
+  stats: CodexResetStats;
+  // When this host fetched the data.
+  observedAt: string;
+  // When the upstream service generated it (meta.generated_at).
+  generatedAt: string;
+}
+
 export interface StatusSnapshot {
   generatedAt: string;
   profile: BurnProfile;
@@ -159,6 +209,10 @@ export interface StatusSnapshot {
   // Absent on snapshots written before disk probing and whenever statfs
   // fails. Consumers must degrade, never assume.
   disk?: DiskUsage | null;
+  // Absent on snapshots written before reset tracking, whenever codex is not
+  // monitored, and whenever the fetch fails. Consumers must degrade, never
+  // assume.
+  codexReset?: CodexResetStatus | null;
 }
 
 export interface BurnConfig {

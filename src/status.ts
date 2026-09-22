@@ -4,7 +4,7 @@ import { analyzeUsage, analyzeUsageWithConversionRate } from "./burn.js";
 import { ensureDir, readJsonFile, writeJsonAtomic } from "./fs-util.js";
 import { buildPaths, providerLatestPath } from "./paths.js";
 import { loadSamples } from "./store.js";
-import { BurnProfile, ProviderUsage, RuntimePaths, StatusIssue, StatusSnapshot } from "./types.js";
+import { BurnProfile, CodexResetStatus, ProviderUsage, RuntimePaths, StatusIssue, StatusSnapshot } from "./types.js";
 
 const DEFAULT_STALE_AFTER_SECONDS = 10 * 60;
 const STATUS_LOCK_RETRY_MS = 5;
@@ -142,6 +142,7 @@ export function createStatusSnapshot(
     fixtureSamples?: Map<string, ProviderUsage[]>;
     issues?: StatusIssue[];
     staleAfterSeconds?: number;
+    codexReset?: CodexResetStatus | null;
   } = {},
 ): StatusSnapshot {
   const paths = options.paths ?? buildPaths();
@@ -168,6 +169,7 @@ export function createStatusSnapshot(
     profile,
     providers,
     issues: [...(options.issues ?? []), ...staleIssues],
+    codexReset: options.codexReset ?? null,
   };
 }
 

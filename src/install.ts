@@ -168,10 +168,16 @@ function installCliShim(paths: RuntimePaths, dryRun: boolean) {
   return messages;
 }
 
-function plistXml(programArgs: string[]) {
+// Exported for tests: the plist shapes what the daemon can see at runtime.
+export function plistXml(programArgs: string[]) {
   const args = programArgs
     .map((arg) => `        <string>${arg.replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</string>`)
     .join("\n");
+  // launchd agents inherit no user PATH, so the daemon cannot see
+  // terminal-notifier (typically /opt/homebrew/bin) and notifications silently
+  // degrade to the plain osascript style. Pin a PATH that covers the common
+  // install locations; node itself is already resolved to an absolute path.
+  const daemonPath = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -184,6 +190,11 @@ ${args}
         <string>daemon</string>
         <string>--once</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>${daemonPath}</string>
+    </dict>
     <key>StartInterval</key>
     <integer>300</integer>
     <key>StandardOutPath</key>

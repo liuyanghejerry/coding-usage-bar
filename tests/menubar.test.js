@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { renderMenuBar, swiftBarStatusItemVisibilityKeys, readTitleMode, writeTitleMode, cycleTitleMode, pickTitleTier, resetGlyphSetCache, verifyMenuBarSetup } from "../dist/menubar.js";
 import { buildPaths } from "../dist/paths.js";
+import { formatResetTime } from "../dist/format.js";
 import { encodePNG } from "../dist/png.js";
 import { GLYPH_STYLES } from "../dist/glyphs.js";
 
@@ -734,4 +735,106 @@ test("verifyMenuBarSetup reports missing SwiftBar with install instructions", ()
     assert.ok(messages.some((message) => message.includes("brew install --cask swiftbar")));
     assert.ok(!messages.some((message) => message.includes("Menu bar ready —")));
   });
+});
+
+// --- Codex reset tracker display (status.json -> codexReset) ---
+
+const RESET_NOW = new Date("2026-05-08T00:00:00.000Z");
+const RESET_SCHEDULED_FOR = "2026-05-08T06:59:00.000Z";
+const codexResetFixture = {
+  latestReset: {
+    id: "reset-1",
+    resetType: "regular",
+    announcedAt: "2026-05-02T08:09:17.000Z",
+    scheduledFor: null,
+    text: "Reset all propagated. Sweet dreams.",
+    sourceType: "x_post",
+    sourceAuthor: "thsottiaux",
+    sourceUrl: "https://x.com/thsottiaux/status/reset-1",
+  },
+  scheduledReset: {
+    id: "reset-2",
+    resetType: "regular",
+    announcedAt: "2026-05-07T22:31:32.000Z",
+    scheduledFor: RESET_SCHEDULED_FOR,
+    text: "I promised a reset for Friday. See you soon.",
+    sourceType: "x_post",
+    sourceAuthor: "thsottiaux",
+    sourceUrl: "https://x.com/thsottiaux/status/reset-2",
+  },
+  activeWatch: {
+    level: "elevated",
+    resetChancePercent: 55,
+    forecastWindow: "next 24h",
+    observedAt: "2026-05-07T20:00:00.000Z",
+    expiresAt: "2026-05-09T20:00:00.000Z",
+    text: "Chatter points at a possible Friday reset.",
+    sourceType: "observed",
+    sourceAuthor: null,
+    sourceUrl: "https://codex-resets.com",
+  },
+  stats: {
+    total: 12,
+    lastResetAt: "2026-05-02T08:09:17.000Z",
+    daysSinceLast: 5.7,
+    avgIntervalDays: 6.9,
+  },
+  observedAt: "2026-05-08T00:00:00.000Z",
+  generatedAt: "2026-05-08T00:00:00.000Z",
+};
+const resetSnapshot = { ...snapshot, codexReset: codexResetFixture };
+
+test("renderMenuBar leaves reset surfaces out when no reset data exists", () => {
+  const output = renderMenuBar(snapshot, freshPaths(), RESET_NOW);
+  assert.doesNotMatch(output, /Data from codex-resets\.com/);
+  assert.doesNotMatch(output, /\nTibo Reset {2}/);
+  assert.doesNotMatch(output, /tooltip=[^\n]*Tibo Reset:/);
+});
+
+test("renderMenuBar shows the reset summary in text fallback rows and tooltip", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "coding-usage-bar-reset-ui-"));
+  const paths = buildPaths(home);
+  const output = renderMenuBar(resetSnapshot, paths, RESET_NOW);
+  const expectedWhen = formatResetTime(RESET_SCHEDULED_FOR, RESET_NOW);
+  assert.match(output, new RegExp(`Tibo Reset {2}scheduled ${expectedWhen} · watch elevated 55%`));
+  assert.match(output, /Data from codex-resets\.com \| href=https:\/\/codex-resets\.com/);
+  assert.match(output, /tooltip=[^\n]*Tibo\\ Reset:\\ scheduled/);
+});
+
+test("card mode keeps exactly one dropdown image and credits the data source", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "coding-usage-bar-reset-card-"));
+  const paths = buildPaths(home);
+  writeFixtureGlyphs(paths);
+  resetGlyphSetCache();
+  try {
+    const withReset = renderMenuBar(resetSnapshot, paths, RESET_NOW);
+    const withoutReset = renderMenuBar(snapshot, paths, RESET_NOW);
+    const withLines = withReset.split("\n").slice(1).filter((entry) => / image=/.test(entry));
+    assert.equal(withLines.length, 1, "reset note must not add image items to the dropdown");
+    assert.match(withReset, /Data from codex-resets\.com \| href=https:\/\/codex-resets\.com/);
+
+    // The reset note row grows the card, proving it reached the renderer.
+    const withHeight = pngInfoFromBase64(withLines[0].match(/image=([^ ]+)/)[1]).height;
+    const withoutHeight = pngInfoFromBase64(withoutReset.split("\n").slice(1).find((entry) => / image=/.test(entry)).match(/image=([^ ]+)/)[1]).height;
+    assert.ok(withHeight > withoutHeight, "codex card block should gain the reset note row");
+  } finally {
+    resetGlyphSetCache();
+  }
+});
+
+test("reset rendering is byte-stable across renders while the snapshot is unchanged", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "coding-usage-bar-reset-stable-"));
+  const paths = buildPaths(home);
+  const first = renderMenuBar(resetSnapshot, paths, new Date("2026-05-08T01:00:00.000Z"));
+  const second = renderMenuBar(resetSnapshot, paths, new Date("2026-05-08T01:01:30.000Z"));
+  assert.equal(first, second);
+});
+
+test("a live reset signal widens the codex title segment with a marker dot", () => {
+  const baseline = renderMenuBar(snapshot, freshPaths(), RESET_NOW);
+  const marked = renderMenuBar(resetSnapshot, freshPaths(), RESET_NOW);
+  const baselineWidth = pngInfoFromBase64(/(?<!sf)image=([A-Za-z0-9+/=]+)/.exec(baseline.split("\n")[0])[1]).width;
+  const markedWidth = pngInfoFromBase64(/(?<!sf)image=([A-Za-z0-9+/=]+)/.exec(marked.split("\n")[0])[1]).width;
+  assert.ok(markedWidth > baselineWidth, "reset dot should widen the codex segment");
+  assert.ok(markedWidth < 520, "title image must stay within the measured budget margin");
 });

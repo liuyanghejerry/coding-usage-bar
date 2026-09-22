@@ -88,3 +88,55 @@ export function writeNotificationCard(
     return svgPath;
   }
 }
+
+// Reset events get their own notification card: a reset announcement is rare
+// and time-sensitive, so the visual must read as an event, not as another
+// burn-rate blip. Same geometry as the burn card, event-grade accent color.
+// Unlike the burn card (whose headline is a short "10%"), the reset headline
+// can be a full timestamp, so content stacks in one column and the font size
+// adapts instead of colliding with a side column.
+export interface ResetNotificationCardSpec {
+  accent: string;
+  label: string;
+  headline: string;
+  detail: string;
+  footnote: string;
+}
+
+export function resetNotificationCardSvg(spec: ResetNotificationCardSpec) {
+  const headlineSize = spec.headline.length <= 5 ? 62 : spec.headline.length <= 10 ? 40 : 30;
+  const footnote = spec.footnote.length > 46 ? `${spec.footnote.slice(0, 46)}…` : spec.footnote;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="200" viewBox="0 0 420 200">
+  <rect width="420" height="200" rx="28" fill="#111827"/>
+  <rect x="0" y="0" width="12" height="200" fill="${escapeXml(spec.accent)}"/>
+  <text x="30" y="42" fill="#f9fafb" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700">Tibo Reset</text>
+  <text x="30" y="74" fill="${escapeXml(spec.accent)}" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700">${escapeXml(spec.label)}</text>
+  <text x="30" y="128" fill="${escapeXml(spec.accent)}" font-family="Arial, Helvetica, sans-serif" font-size="${headlineSize}" font-weight="800">${escapeXml(spec.headline)}</text>
+  <text x="30" y="160" fill="#d1d5db" font-family="Arial, Helvetica, sans-serif" font-size="22">${escapeXml(spec.detail)}</text>
+  <text x="30" y="188" fill="#9ca3af" font-family="Arial, Helvetica, sans-serif" font-size="20">${escapeXml(footnote)}</text>
+</svg>
+`;
+}
+
+export function resetCardPath(spec: ResetNotificationCardSpec, paths: RuntimePaths = buildPaths()) {
+  const fileName = `codex-reset-${spec.label.toLowerCase().replaceAll(" ", "-")}.png`;
+  return path.join(paths.stateDir, "cards", fileName);
+}
+
+export function writeResetNotificationCard(
+  spec: ResetNotificationCardSpec,
+  paths: RuntimePaths = buildPaths(),
+) {
+  const pngPath = resetCardPath(spec, paths);
+  const svgPath = pngPath.replace(/\.png$/, ".svg");
+  ensureDir(path.dirname(pngPath));
+  fs.writeFileSync(svgPath, resetNotificationCardSvg(spec), "utf8");
+  try {
+    execFileSync("sips", ["-s", "format", "png", svgPath, "--out", pngPath], {
+      stdio: "ignore",
+    });
+    return pngPath;
+  } catch {
+    return svgPath;
+  }
+}

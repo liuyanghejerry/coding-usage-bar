@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildPaths } from "../dist/paths.js";
-import { installClaudeStatusLine, isSameDirectory, stopLaunchAgent, uninstall } from "../dist/install.js";
+import { installClaudeStatusLine, isSameDirectory, plistXml, stopLaunchAgent, uninstall } from "../dist/install.js";
 import { writeJsonAtomic } from "../dist/fs-util.js";
 import { stableNodeExecutable } from "../dist/node-runtime.js";
 import { claudeStatusLineHasIngest } from "../dist/claude.js";
@@ -239,4 +239,12 @@ test("uninstall restores wrapped custom status line command", () => {
       process.env.CODING_USAGE_BAR_PLUGIN_DIR = originalPluginDir;
     }
   }
+});
+
+test("launchd plist pins a PATH so the daemon can find terminal-notifier", () => {
+  const xml = plistXml(["/some/node"]);
+  assert.match(xml, /EnvironmentVariables/);
+  assert.match(xml, /\/opt\/homebrew\/bin:\/usr\/local\/bin:\/usr\/bin:\/bin/);
+  assert.match(xml, /StartInterval/);
+  assert.match(xml, /<string>daemon<\/string>/);
 });
