@@ -195,11 +195,13 @@ test("stopLaunchAgent exposes failure when the job remains loaded", () => {
   );
 });
 
-test("uninstall restores wrapped custom status line command", () => {
+test("uninstall restores wrapped custom status line command", { skip: process.platform !== "darwin" && process.platform !== "linux" ? "no supported uninstall flow" : false }, () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "coding-usage-bar-install-"));
   const { paths, script } = createCustomStatusLine(home);
   fs.mkdirSync(path.dirname(paths.launchAgentFile), { recursive: true });
   fs.writeFileSync(paths.launchAgentFile, "plist", "utf8");
+  fs.mkdirSync(path.dirname(paths.systemdTimerFile), { recursive: true });
+  fs.writeFileSync(paths.systemdTimerFile, "unit", "utf8");
 
   installClaudeStatusLine(paths, {
     dryRun: false,
@@ -209,24 +211,40 @@ test("uninstall restores wrapped custom status line command", () => {
   const originalHome = process.env.HOME;
   const originalPluginDir = process.env.CODING_USAGE_BAR_PLUGIN_DIR;
   process.env.HOME = home;
-  // Sandbox the SwiftBar plugin dir so uninstall can't touch the real menubar plugin.
-  process.env.CODING_USAGE_BAR_PLUGIN_DIR = path.join(home, "swiftbar");
+  // Sandbox the menu bar plugin dir so uninstall can't touch the real plugin.
+  process.env.CODING_USAGE_BAR_PLUGIN_DIR = path.join(home, "menubar-host");
   try {
-    const launchctlCalls = [];
-    const messages = uninstall({
-      dryRun: false,
-      launchctlRunner: (_file, args) => {
+    const options = { dryRun: false };
+    if (process.platform === "darwin") {
+      const launchctlCalls = [];
+      options.launchctlRunner = (_file, args) => {
         launchctlCalls.push(args);
         if (args[0] === "bootout") {
           return;
         }
         throw new Error(`unexpected launchctl call: ${args.join(" ")}`);
-      },
-    });
+      };
+      options.assertSchedulerCalls = () => assert.deepEqual(launchctlCalls.map((args) => args[0]), ["bootout"]);
+    } else {
+      const systemctlCalls = [];
+      options.systemctlRunner = (args) => {
+        systemctlCalls.push(args);
+        if (args[0] === "disable") {
+          return;
+        }
+        if (args[0] === "daemon-reload") {
+          return;
+        }
+        throw new Error(`unexpected systemctl call: ${args.join(" ")}`);
+      };
+      options.assertSchedulerCalls = () => assert.deepEqual(systemctlCalls.map((args) => args[0]), ["disable", "daemon-reload"]);
+    }
+    const { assertSchedulerCalls, ...uninstallOptions } = options;
+    const messages = uninstall(uninstallOptions);
     const settings = JSON.parse(fs.readFileSync(paths.claudeSettingsFile, "utf8"));
     assert.equal(settings.statusLine.command, script);
     assert.ok(messages.some((message) => message.includes("Restored user-managed Claude status line.")));
-    assert.deepEqual(launchctlCalls.map((args) => args[0]), ["bootout"]);
+    assertSchedulerCalls();
   } finally {
     if (originalHome === undefined) {
       delete process.env.HOME;

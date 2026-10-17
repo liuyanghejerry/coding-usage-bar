@@ -70,12 +70,27 @@ Coding Usage Bar measures that space and picks a title width to fit (see [Menu B
 
 `coding-usage-bar install` is designed to be repeatable.
 
-- From `npx coding-usage-bar install` or `npx --no-install coding-usage-bar install`, it copies the current package into `~/.coding-usage-bar/app` through a temporary directory, then restarts launchd.
+- From `npx coding-usage-bar install` or `npx --no-install coding-usage-bar install`, it copies the current package into `~/.coding-usage-bar/app` through a temporary directory, then restarts the scheduler (launchd on macOS, systemd user units on Linux).
 - From a source checkout, `npm run build && npx --no-install coding-usage-bar install` installs the current local build.
-- From the installed shim `coding-usage-bar install`, it detects that it is already running from `~/.coding-usage-bar/app`, skips runtime self-copy, and still refreshes the CLI shim, SwiftBar plugin, and launchd agent.
-- The launchd job runs `~/.coding-usage-bar/app/dist/cli.js daemon --once` every 300 seconds.
+- From the installed shim `coding-usage-bar install`, it detects that it is already running from `~/.coding-usage-bar/app`, skips runtime self-copy, and still refreshes the CLI shim, menu bar plugin, and scheduler.
+- The scheduler runs `~/.coding-usage-bar/app/dist/cli.js daemon --once` every 300 seconds.
 - The installer does not overwrite user-managed Claude Code status line scripts. If one already exists, it asks before installing a Coding Usage Bar wrapper around it.
-- Long-lived launchd, SwiftBar, and Claude wrapper commands prefer the stable `node` found in `PATH` (for example `/opt/homebrew/bin/node`) instead of a versioned Homebrew Cellar path. Set `CODING_USAGE_BAR_NODE=/absolute/path/to/node` before installing to override it, and rerun `coding-usage-bar install` after moving or replacing Node.
+- Long-lived launchd/systemd, menu bar host, and Claude wrapper commands prefer the stable `node` found in `PATH` (for example `/opt/homebrew/bin/node`) instead of a versioned package-manager path. Set `CODING_USAGE_BAR_NODE=/absolute/path/to/node` before installing to override it, and rerun `coding-usage-bar install` after moving or replacing Node.
+
+## Linux (Ubuntu / GNOME)
+
+On Linux the menu bar host is [Argos](https://github.com/p-e-w/argos), the GNOME Shell equivalent of BitBar/SwiftBar, and the scheduler is a systemd user timer — no root access needed.
+
+- Argos cannot be installed automatically on modern GNOME; if `coding-usage-bar install` reports it missing, install it with:
+  ```bash
+  git clone https://github.com/p-e-w/argos ~/.local/share/gnome-shell/extensions/argos@pew.worldwidemann.com
+  gnome-extensions enable argos@pew.worldwidemann.com   # after a re-login on Wayland
+  ```
+  then re-run `coding-usage-bar doctor --fix`.
+- The Argos plugin lives at `~/.config/argos/coding-usage-bar.1m.js` and re-renders every minute; the dropdown renders compact text rows (Pango-colored meters) instead of the macOS composite card image, so there is no glyph baking step on Linux.
+- The daemon runs as `coding-usage-bar.service`/`coding-usage-bar.timer` under `systemd --user` (`systemctl --user status coding-usage-bar.timer`).
+- Notifications use `notify-send` (libnotify).
+- The dropdown uses compact typography and Japanese traditional color accents, with advice in a Details submenu. Use its Title row to cycle Full/Single/Icon modes when panel space is limited.
 
 ## Claude Code Status Line
 
@@ -251,11 +266,13 @@ Like the menu bar budget, disk data flows producer → `status.json` → display
 | `~/.coding-usage-bar/kimi/latest.json` | Latest normalized Kimi 5h/7d usage from Kimi usages API |
 | `~/.local/bin/coding-usage-bar` | CLI shim pointing at the stable runtime |
 | `~/Library/LaunchAgents/com.duying.coding-usage-bar.plist` | macOS launchd agent |
-| SwiftBar `PluginDirectory` / `coding-usage-bar.1m.js` | Menu bar plugin wrapper |
+| `~/.config/systemd/user/coding-usage-bar.service` / `.timer` | Linux systemd user units |
+| `~/.config/argos/coding-usage-bar.1m.js` | Linux Argos menu bar plugin wrapper |
+| SwiftBar `PluginDirectory` / `coding-usage-bar.1m.js` | macOS menu bar plugin wrapper |
 
 ## Notifications
 
-On macOS, Coding Usage Bar uses `terminal-notifier` when available and attaches a dynamic data card as the notification content image.
+On macOS, Coding Usage Bar uses `terminal-notifier` when available and attaches a dynamic data card as the notification content image. On Linux it uses `notify-send` (libnotify) with the app icon.
 
 The card shows provider, the available rolling-window usage, state label, target range, and reset countdown. This avoids asking users to infer meaning from a red/yellow icon.
 
@@ -277,9 +294,9 @@ See the [product and technical baseline](https://github.com/hanzhangzzz/coding-u
 
 ## Requirements
 
-- macOS
+- macOS (menu bar via SwiftBar) or Linux with GNOME Shell (menu bar via Argos)
 - Node.js 20 or newer
-- SwiftBar (the installer can install it through Homebrew)
+- SwiftBar on macOS (the installer can install it through Homebrew); Argos on Linux (manual one-time install, see above)
 - Claude Code or Codex for local usage monitoring
 
 ## Development

@@ -6,6 +6,13 @@ import { claudeStatusLineHasIngest, getClaudeStatusLineCommand, readClaudeSettin
 import { ensureConfig, readConfig } from "./config.js";
 import { ensureDir, isFile, readJsonFile, writeJsonAtomic } from "./fs-util.js";
 import { addSwiftBarToLoginItems, ensureSwiftBarInstalled, installMenuBar, openSwiftBar, uninstallMenuBar, verifyMenuBarSetup } from "./menubar.js";
+import {
+  ensureArgosInstalled,
+  installLinuxMenuBar,
+  uninstallLinuxMenuBar,
+  verifyLinuxMenuBarSetup,
+} from "./menubar-linux.js";
+import { restartSystemdUnits, stopSystemdUnits, systemdServiceUnit, systemdTimerUnit, SystemctlRunner } from "./systemd.js";
 import { bakeGlyphAtlases } from "./glyphs.js";
 import { buildPaths } from "./paths.js";
 import { stableNodeExecutable } from "./node-runtime.js";
@@ -395,15 +402,16 @@ export function install(options: { dryRun?: boolean } = {}) {
   const dryRun = options.dryRun ?? false;
   const paths = buildPaths();
   const messages: string[] = [];
+  const linux = process.platform === "linux";
 
-  if (process.platform !== "darwin") {
-    messages.push("macOS launchd install is only implemented on macOS. Windows support is designed but not implemented in v1.");
+  if (process.platform !== "darwin" && !linux) {
+    messages.push("Install is implemented on macOS (launchd) and Linux (systemd). Windows support is designed but not implemented in v1.");
     return messages;
   }
 
   if (!dryRun) {
     ensureDir(paths.stateDir);
-    ensureDir(path.dirname(paths.launchAgentFile));
+    ensureDir(path.dirname(linux ? paths.systemdTimerFile : paths.launchAgentFile));
   }
 
   messages.push(...installRuntimeApp(paths, dryRun));
@@ -423,42 +431,60 @@ export function install(options: { dryRun?: boolean } = {}) {
       messages.push("  Get your key at: https://open.bigmodel.cn");
     }
   }
-  // The dropdown card needs baked glyph atlases; a failed bake must not fail
-  // the install — rendering falls back to text-only rows until a bake works.
-  try {
-    messages.push(...bakeGlyphAtlases(paths, { dryRun }));
-  } catch (error) {
-    messages.push(`Glyph atlas bake failed: ${error instanceof Error ? error.message : String(error)}`);
-    messages.push("The menu bar dropdown will use the text-only fallback; retry with: coding-usage-bar menubar bake-glyphs");
+
+  if (linux) {
+    // The baked glyph atlases only feed the macOS SwiftBar card; the Argos
+    // menu renders text rows and needs no bake step.
+    messages.push(...ensureArgosInstalled({ dryRun }));
+    messages.push(...installLinuxMenuBar({ dryRun }));
+  } else {
+    // The dropdown card needs baked glyph atlases; a failed bake must not fail
+    // the install — rendering falls back to text-only rows until a bake works.
+    try {
+      messages.push(...bakeGlyphAtlases(paths, { dryRun }));
+    } catch (error) {
+      messages.push(`Glyph atlas bake failed: ${error instanceof Error ? error.message : String(error)}`);
+      messages.push("The menu bar dropdown will use the text-only fallback; retry with: coding-usage-bar menubar bake-glyphs");
+    }
+    messages.push(...ensureSwiftBarInstalled({ dryRun }));
+    messages.push(...installMenuBar({ dryRun }));
+    if (!dryRun) {
+      messages.push(...openSwiftBar());
+    }
+    messages.push(...addSwiftBarToLoginItems({ dryRun }));
   }
-  messages.push(...ensureSwiftBarInstalled({ dryRun }));
-  messages.push(...installMenuBar({ dryRun }));
-  if (!dryRun) {
-    messages.push(...openSwiftBar());
-  }
-  messages.push(...addSwiftBarToLoginItems({ dryRun }));
   messages.push(...installClaudeStatusLine(paths, { dryRun }));
 
   const args = installedCliCommand(paths);
-  const xml = plistXml(args);
-  if (dryRun) {
-    messages.push(`[dry-run] would write launchd plist: ${paths.launchAgentFile}`);
-    messages.push(`[dry-run] ProgramArguments: ${[...args, "daemon", "--once"].join(" ")}`);
-    messages.push(...verifyMenuBarSetup({ dryRun }));
-    return messages;
+  if (linux) {
+    if (dryRun) {
+      messages.push(`[dry-run] would write systemd user units: ${paths.systemdServiceFile}, ${paths.systemdTimerFile}`);
+      messages.push(`[dry-run] ExecStart: ${[...args, "daemon", "--once"].join(" ")}`);
+    } else {
+      fs.writeFileSync(paths.systemdServiceFile, systemdServiceUnit(args, paths.homeDir), "utf8");
+      fs.writeFileSync(paths.systemdTimerFile, systemdTimerUnit(), "utf8");
+      messages.push(...restartSystemdUnits(paths));
+    }
+  } else {
+    const xml = plistXml(args);
+    if (dryRun) {
+      messages.push(`[dry-run] would write launchd plist: ${paths.launchAgentFile}`);
+      messages.push(`[dry-run] ProgramArguments: ${[...args, "daemon", "--once"].join(" ")}`);
+    } else {
+      fs.writeFileSync(paths.launchAgentFile, xml, "utf8");
+      restartLaunchAgent(paths.launchAgentFile);
+      messages.push(`Installed and restarted launchd agent: ${paths.launchAgentFile}`);
+    }
   }
-
-  fs.writeFileSync(paths.launchAgentFile, xml, "utf8");
-  restartLaunchAgent(paths.launchAgentFile);
-  messages.push(`Installed and restarted launchd agent: ${paths.launchAgentFile}`);
-  messages.push(...verifyMenuBarSetup());
+  messages.push(...(linux ? verifyLinuxMenuBarSetup({ dryRun }) : verifyMenuBarSetup({ dryRun })));
   return messages;
 }
 
-export function uninstall(options: { dryRun?: boolean; launchctlRunner?: LaunchctlRunner } = {}) {
+export function uninstall(options: { dryRun?: boolean; launchctlRunner?: LaunchctlRunner; systemctlRunner?: SystemctlRunner } = {}) {
   const dryRun = options.dryRun ?? false;
   const paths = buildPaths();
   const messages: string[] = [];
+  const linux = process.platform === "linux";
 
   if (process.platform === "darwin" && isFile(paths.launchAgentFile)) {
     if (dryRun) {
@@ -467,6 +493,17 @@ export function uninstall(options: { dryRun?: boolean; launchctlRunner?: Launchc
       stopLaunchAgent(paths.launchAgentFile, options.launchctlRunner);
       fs.rmSync(paths.launchAgentFile, { force: true });
       messages.push(`Removed launchd agent: ${paths.launchAgentFile}`);
+    }
+  }
+
+  if (linux && (isFile(paths.systemdServiceFile) || isFile(paths.systemdTimerFile))) {
+    if (dryRun) {
+      messages.push(`[dry-run] would disable and remove systemd user units: ${paths.systemdServiceFile}, ${paths.systemdTimerFile}`);
+    } else {
+      messages.push(...stopSystemdUnits(options.systemctlRunner));
+      fs.rmSync(paths.systemdServiceFile, { force: true });
+      fs.rmSync(paths.systemdTimerFile, { force: true });
+      messages.push(`Removed systemd user units: ${paths.systemdServiceFile}, ${paths.systemdTimerFile}`);
     }
   }
 
@@ -481,7 +518,7 @@ export function uninstall(options: { dryRun?: boolean; launchctlRunner?: Launchc
     messages.push(`CLI shim is user-managed; leaving it unchanged: ${paths.cliBinFile}`);
   }
 
-  messages.push(...uninstallMenuBar({ dryRun }));
+  messages.push(...(linux ? uninstallLinuxMenuBar({ dryRun }) : uninstallMenuBar({ dryRun })));
 
   if (fs.existsSync(paths.glyphsDir)) {
     if (dryRun) {

@@ -2,7 +2,7 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-**在 macOS 菜单栏监控 Claude Code、Codex 和其他 AI 编程套餐用量。**
+**在 macOS 菜单栏（SwiftBar）或 Linux GNOME 顶栏（Argos）监控 Claude Code、Codex 和其他 AI 编程套餐用量。**
 
 ![Coding Usage Bar 在 macOS 菜单栏展示多个 AI 编程 Provider 的套餐用量](docs/assets/hero.png)
 
@@ -30,10 +30,24 @@ coding-usage-bar status
 
 - `~/.coding-usage-bar/app` 稳定运行副本
 - `~/.local/bin/coding-usage-bar` 命令入口
-- 每 5 分钟采集一次用量的 launchd 任务
-- 写入 SwiftBar 当前插件目录的菜单栏插件
+- 每 5 分钟采集一次用量的后台任务（macOS 用 launchd，Linux 用 systemd user timer）
+- 菜单栏插件（macOS 写入 SwiftBar 插件目录；Linux 写入 `~/.config/argos/coding-usage-bar.1m.js`）
 
 安装结束时会自动验收菜单栏是否就绪，最后一行出现 `Menu bar ready` 即表示图标已出现在菜单栏右上角。
+
+## Linux（Ubuntu / GNOME）
+
+Linux 上菜单栏宿主是 [Argos](https://github.com/p-e-w/argos)（GNOME Shell 版的 BitBar/SwiftBar），调度用 systemd user timer，无需 root。
+
+- 现代 GNOME 无法自动安装 Argos；如果 `coding-usage-bar install` 提示缺失，请手动安装：
+  ```bash
+  git clone https://github.com/p-e-w/argos ~/.local/share/gnome-shell/extensions/argos@pew.worldwidemann.com
+  gnome-extensions enable argos@pew.worldwidemann.com   # Wayland 需重新登录后执行
+  ```
+  然后执行 `coding-usage-bar doctor --fix`。
+- Linux 下拉菜单渲染为紧凑文本行（Pango 着色进度条），不烘焙字形、不生成 PNG 卡片；通知走 `notify-send`。
+- 下拉菜单使用日本传统色，详细建议收进 `Details` 子菜单；顶栏空间有限时，可点击 `Title` 行切换 Full/Single/Icon 模式。
+- 守护进程状态：`systemctl --user status coding-usage-bar.timer`。
 
 ## 常见问题
 

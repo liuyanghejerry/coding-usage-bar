@@ -94,6 +94,13 @@ export interface RuntimePaths {
   swiftBarPluginDir: string;
   swiftBarPluginFile: string;
   launchAgentFile: string;
+  // Linux (systemd user manager + Argos) counterparts of the macOS launchd
+  // agent and SwiftBar plugin paths above. Populated on every platform so
+  // buildPaths stays pure; only meaningful on Linux.
+  systemdServiceFile: string;
+  systemdTimerFile: string;
+  argosPluginDir: string;
+  argosPluginFile: string;
   claudeSettingsFile: string;
   claudeStatusLineScript: string;
   glyphsDir: string;

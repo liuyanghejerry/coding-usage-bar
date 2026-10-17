@@ -23,7 +23,7 @@ import { BurnState, CodexResetStatus, DiskUsage, RuntimePaths, StatusSnapshot } 
 const MARKER = "coding-usage-bar managed SwiftBar plugin";
 const SWIFTBAR_APP_PATHS = ["/Applications/SwiftBar.app", path.join(process.env.HOME ?? "", "Applications", "SwiftBar.app")];
 
-const STATE_LABEL: Record<BurnState, string> = {
+export const STATE_LABEL: Record<BurnState, string> = {
   RAW: "Learning",
   UNDER_BURN: "Low",
   ON_TRACK: "On Track",
@@ -531,7 +531,7 @@ function imageAssetBase64(name: string) {
   }
 }
 
-function titleProviders(snapshot: StatusSnapshot) {
+export function titleProviders(snapshot: StatusSnapshot) {
   return [...snapshot.providers].sort((left, right) => {
     const leftIndex = TITLE_PROVIDER_ORDER.indexOf(left.usage.provider);
     const rightIndex = TITLE_PROVIDER_ORDER.indexOf(right.usage.provider);
@@ -541,7 +541,7 @@ function titleProviders(snapshot: StatusSnapshot) {
   });
 }
 
-function titleSegment(provider: StatusSnapshot["providers"][number]) {
+export function titleSegment(provider: StatusSnapshot["providers"][number]) {
   const usage = provider.usage;
   if (usage.balance && usage.windows.length === 0) {
     const currency = usage.balance.currency === "CNY" ? "¥" : "$";
@@ -743,7 +743,7 @@ function titleIconParams() {
 // Sort is stable per spec, so TITLE_PROVIDER_ORDER survives as the tie-break
 // and the same snapshot always elects the same provider. Byte-stable output is
 // what lets SwiftBar skip the menu rebuild.
-function mostUrgentProvider(providers: StatusSnapshot["providers"]) {
+export function mostUrgentProvider(providers: StatusSnapshot["providers"]) {
   return [...providers].sort((left, right) => (
     STATE_PRIORITY[left.analysis.state] - STATE_PRIORITY[right.analysis.state]
   ))[0];

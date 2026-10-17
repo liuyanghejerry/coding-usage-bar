@@ -8,6 +8,7 @@ import { loadDisplayStatusSnapshot, collectStatusSnapshot } from "./runtime.js";
 import { runDaemonOnce } from "./daemon.js";
 import { doctorHasFailures, formatDoctor, runDoctor, runDoctorFix } from "./doctor.js";
 import { installMenuBar, renderMenuBar, uninstallMenuBar, cycleTitleMode } from "./menubar.js";
+import { installLinuxMenuBar, renderLinuxMenuBar, uninstallLinuxMenuBar } from "./menubar-linux.js";
 import { buildPaths } from "./paths.js";
 import { bakeGlyphAtlases } from "./glyphs.js";
 import { maybePromptForStar } from "./star.js";
@@ -35,6 +36,10 @@ Usage:
 `);
 }
 
+function isLinux() {
+  return process.platform === "linux";
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
@@ -50,7 +55,7 @@ async function main() {
     if (command === "install") {
       const messages = install({ dryRun });
       console.log(messages.join("\n"));
-      if (messages.some((message) => message.startsWith("Installed and restarted launchd agent:"))) {
+      if (messages.some((message) => message.startsWith("Installed and restarted launchd agent:") || message.startsWith("Installed and restarted systemd user timer:"))) {
         const starMessages = maybePromptForStar(buildPaths(), { dryRun, env: process.env });
         if (starMessages.length > 0) {
           console.log(starMessages.join("\n"));
@@ -125,17 +130,17 @@ async function main() {
     }
 
     if (command === "menubar" && subcommand === "render") {
-      console.log(renderMenuBar());
+      console.log(isLinux() ? renderLinuxMenuBar() : renderMenuBar());
       return;
     }
 
     if (command === "menubar" && subcommand === "install") {
-      console.log(installMenuBar({ dryRun }).join("\n"));
+      console.log((isLinux() ? installLinuxMenuBar({ dryRun }) : installMenuBar({ dryRun })).join("\n"));
       return;
     }
 
     if (command === "menubar" && subcommand === "uninstall") {
-      console.log(uninstallMenuBar({ dryRun }).join("\n"));
+      console.log((isLinux() ? uninstallLinuxMenuBar({ dryRun }) : uninstallMenuBar({ dryRun })).join("\n"));
       return;
     }
 
@@ -148,6 +153,10 @@ async function main() {
     }
 
     if (command === "menubar" && subcommand === "bake-glyphs") {
+      if (isLinux()) {
+        console.log("Glyph atlases only feed the macOS SwiftBar menu bar; the Linux Argos menu renders text and needs no baking.");
+        return;
+      }
       console.log(bakeGlyphAtlases(buildPaths(), { dryRun }).join("\n"));
       return;
     }

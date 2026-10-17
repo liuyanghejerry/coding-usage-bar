@@ -119,6 +119,9 @@ test("doctorHasFailures reports any failed check", () => {
 
 import { runDoctorFix } from "../dist/doctor.js";
 
+const isDarwin = process.platform === "darwin";
+const isLinux = process.platform === "linux";
+
 function spyEffects() {
   const calls = [];
   return {
@@ -128,6 +131,7 @@ function spyEffects() {
       installPlugin: () => { calls.push("installPlugin"); return ["Installed SwiftBar plugin"]; },
       launchSwiftBar: () => { calls.push("launchSwiftBar"); return ["Opened SwiftBar."]; },
       addLoginItem: () => { calls.push("addLoginItem"); return ["Added SwiftBar to login items"]; },
+      ensureArgos: () => { calls.push("ensureArgos"); return ["Argos extension already installed and enabled."]; },
       collectStatus: async () => { calls.push("collectStatus"); return ["Daemon ran once"]; },
     },
   };
@@ -136,27 +140,32 @@ function spyEffects() {
 test("runDoctorFix dry-run only announces", async () => {
   assert.deepEqual(
     await runDoctorFix({ dryRun: true }),
-    ["[dry-run] would repair SwiftBar, the menu bar plugin, login items, and status data automatically"],
+    ["[dry-run] would repair the menu bar host, the menu bar plugin, and status data automatically"],
   );
 });
 
-test("runDoctorFix does nothing when everything is healthy", async () => {
+test("runDoctorFix does nothing when everything is healthy", { skip: !isDarwin && !isLinux ? "platform has no doctor fix flow" : false }, async () => {
   const { calls, effects } = spyEffects();
-  const messages = await runDoctorFix({
-    probes: {
-      swiftBarInstalled: () => true,
-      pluginPresent: () => true,
-      swiftBarRunning: () => true,
-      swiftBarInLoginItems: () => true,
-      statusFilePresent: () => true,
-    },
-    effects,
-  });
+  const probes = isLinux
+    ? {
+        argosInstalled: () => true,
+        pluginPresent: () => true,
+        argosEnabled: () => true,
+        statusFilePresent: () => true,
+      }
+    : {
+        swiftBarInstalled: () => true,
+        pluginPresent: () => true,
+        swiftBarRunning: () => true,
+        swiftBarInLoginItems: () => true,
+        statusFilePresent: () => true,
+      };
+  const messages = await runDoctorFix({ probes, effects });
   assert.deepEqual(calls, []);
   assert.deepEqual(messages, []);
 });
 
-test("runDoctorFix repairs every detected failure exactly once", async () => {
+test("runDoctorFix repairs every detected failure exactly once", { skip: !isDarwin ? "SwiftBar flow is macOS-only" : false }, async () => {
   const { calls, effects } = spyEffects();
   // Stateful: SwiftBar reads as absent until the install effect succeeds,
   // mirroring the real fs check against a cask that just landed.
@@ -183,7 +192,33 @@ test("runDoctorFix repairs every detected failure exactly once", async () => {
   assert.ok(messages.some((message) => message.includes("Daemon ran once")));
 });
 
-test("runDoctorFix skips the launch when SwiftBar cannot be installed", async () => {
+test("runDoctorFix repairs Argos and plugin on Linux", { skip: !isLinux ? "Argos flow is Linux-only" : false }, async () => {
+  const { calls, effects } = spyEffects();
+  // Stateful: Argos reads as absent until the ensure effect succeeds,
+  // mirroring the real gnome-extensions check after an install.
+  let argosInstalled = false;
+  const messages = await runDoctorFix({
+    probes: {
+      argosInstalled: () => argosInstalled,
+      pluginPresent: () => false,
+      argosEnabled: () => false,
+      statusFilePresent: () => false,
+    },
+    effects: {
+      ...effects,
+      ensureArgos: () => {
+        calls.push("ensureArgos");
+        argosInstalled = true;
+        return ["Argos extension already installed and enabled."];
+      },
+    },
+  });
+  assert.deepEqual(calls, ["ensureArgos", "installPlugin", "ensureArgos", "collectStatus"]);
+  assert.ok(messages.some((message) => message.includes("Argos extension")));
+  assert.ok(messages.some((message) => message.includes("Daemon ran once")));
+});
+
+test("runDoctorFix skips the launch when SwiftBar cannot be installed", { skip: !isDarwin ? "SwiftBar flow is macOS-only" : false }, async () => {
   const { calls, effects } = spyEffects();
   await runDoctorFix({
     probes: {
@@ -198,7 +233,7 @@ test("runDoctorFix skips the launch when SwiftBar cannot be installed", async ()
   assert.deepEqual(calls, ["installSwiftBar", "installPlugin"]);
 });
 
-test("runDoctorFix leaves an unknown login-item state alone", async () => {
+test("runDoctorFix leaves an unknown login-item state alone", { skip: !isDarwin ? "SwiftBar flow is macOS-only" : false }, async () => {
   const { calls, effects } = spyEffects();
   await runDoctorFix({
     probes: {
@@ -219,9 +254,17 @@ test("runDoctor reports new checks in dry-run without touching the host", () => 
   process.env.HOME = home;
   try {
     const checks = runDoctor({ dryRun: true });
-    const loginItem = checks.find((check) => check.name === "SwiftBar login item");
-    assert.equal(loginItem?.ok, true);
-    assert.match(loginItem?.message ?? "", /\[dry-run\]/);
+    if (process.platform === "linux") {
+      const daemon = checks.find((check) => check.name === "Daemon");
+      assert.equal(daemon?.ok, true);
+      assert.match(daemon?.message ?? "", /systemd/);
+      const menuBar = checks.find((check) => check.name === "Menu bar");
+      assert.ok(menuBar);
+    } else {
+      const loginItem = checks.find((check) => check.name === "SwiftBar login item");
+      assert.equal(loginItem?.ok, true);
+      assert.match(loginItem?.message ?? "", /\[dry-run\]/);
+    }
     const statusData = checks.find((check) => check.name === "Status data");
     assert.equal(statusData?.ok, true);
     assert.match(statusData?.message ?? "", /\[dry-run\]/);

@@ -17,6 +17,14 @@ import {
   openSwiftBar,
   swiftBarPluginPath,
 } from "./menubar.js";
+import {
+  argosPluginPath,
+  ensureArgosInstalled,
+  installLinuxMenuBar,
+  isArgosEnabled,
+  isArgosInstalled,
+} from "./menubar-linux.js";
+import { isSystemdTimerEnabled } from "./systemd.js";
 import { runDaemonOnce } from "./daemon.js";
 import { DoctorCheck } from "./types.js";
 
@@ -249,34 +257,73 @@ export function runDoctor(options: { dryRun?: boolean } = {}): DoctorCheck[] {
         : `backend=${backend}`,
   });
 
-  checks.push({
-    name: "Daemon",
-    ok: process.platform === "darwin" ? fs.existsSync(paths.launchAgentFile) || Boolean(options.dryRun) : false,
-    message:
-      process.platform === "darwin"
-        ? options.dryRun
-          ? `[dry-run] would use ${paths.launchAgentFile}`
-          : paths.launchAgentFile
-        : "daemon install is only implemented for macOS launchd in v1",
-  });
+  const linux = process.platform === "linux";
+  if (linux) {
+    if (options.dryRun) {
+      checks.push({
+        name: "Daemon",
+        ok: true,
+        message: `[dry-run] would use ${paths.systemdServiceFile} + ${paths.systemdTimerFile}`,
+      });
+    } else {
+      const unitsPresent = isFile(paths.systemdServiceFile) && isFile(paths.systemdTimerFile);
+      const timerEnabled = isSystemdTimerEnabled();
+      checks.push({
+        name: "Daemon",
+        ok: unitsPresent && timerEnabled === true,
+        message: !unitsPresent
+          ? `missing ${paths.systemdServiceFile}, ${paths.systemdTimerFile}; run: coding-usage-bar install`
+          : timerEnabled === null
+            ? "units present, but systemctl --user is unavailable (no desktop session?); the timer activates on your next login"
+            : timerEnabled
+              ? `systemd user timer enabled: ${paths.systemdTimerFile}`
+              : `units present but timer not enabled; run: systemctl --user enable --now coding-usage-bar.timer`,
+      });
+    }
 
-  const swiftBarInstalled = isSwiftBarInstalled();
-  const swiftBarPlugin = swiftBarPluginPath(paths);
-  const pluginPresent = swiftBarInstalled && isFile(swiftBarPlugin.file);
-  const swiftBarRunning = pluginPresent && isSwiftBarRunning();
-  checks.push({
-    name: "Menu bar",
-    ok: pluginPresent && swiftBarRunning,
-    message: swiftBarInstalled
-      ? isFile(swiftBarPlugin.file)
-        ? swiftBarRunning
-          ? `SwiftBar plugin installed and SwiftBar running: ${swiftBarPlugin.file}`
-          : "SwiftBar plugin installed but SwiftBar is not running (menu bar item hidden); run: coding-usage-bar doctor --fix"
-        : "SwiftBar found; run: coding-usage-bar doctor --fix"
-      : "SwiftBar not found; run: coding-usage-bar doctor --fix (installs SwiftBar via Homebrew)",
-  });
+    const argosInstalled = isArgosInstalled();
+    const argosEnabled = isArgosEnabled();
+    const argosPlugin = argosPluginPath(paths);
+    const pluginPresent = isFile(argosPlugin.file);
+    checks.push({
+      name: "Menu bar",
+      ok: argosInstalled && argosEnabled && pluginPresent,
+      message: argosInstalled
+        ? pluginPresent
+          ? argosEnabled
+            ? `Argos plugin installed and Argos enabled: ${argosPlugin.file}`
+            : `Argos plugin installed but Argos is not enabled; run: coding-usage-bar doctor --fix`
+        : `Argos found; run: coding-usage-bar doctor --fix`
+        : "Argos GNOME Shell extension not found; run: coding-usage-bar doctor --fix for install steps",
+    });
+  } else {
+    checks.push({
+      name: "Daemon",
+      ok: process.platform === "darwin" ? fs.existsSync(paths.launchAgentFile) || Boolean(options.dryRun) : false,
+      message:
+        process.platform === "darwin"
+          ? options.dryRun
+            ? `[dry-run] would use ${paths.launchAgentFile}`
+            : paths.launchAgentFile
+          : "daemon install is only implemented for macOS launchd and Linux systemd in v1",
+    });
 
-  if (process.platform === "darwin") {
+    const swiftBarInstalled = isSwiftBarInstalled();
+    const swiftBarPlugin = swiftBarPluginPath(paths);
+    const pluginPresent = swiftBarInstalled && isFile(swiftBarPlugin.file);
+    const swiftBarRunning = pluginPresent && isSwiftBarRunning();
+    checks.push({
+      name: "Menu bar",
+      ok: pluginPresent && swiftBarRunning,
+      message: swiftBarInstalled
+        ? isFile(swiftBarPlugin.file)
+          ? swiftBarRunning
+            ? `SwiftBar plugin installed and SwiftBar running: ${swiftBarPlugin.file}`
+            : "SwiftBar plugin installed but SwiftBar is not running (menu bar item hidden); run: coding-usage-bar doctor --fix"
+          : "SwiftBar found; run: coding-usage-bar doctor --fix"
+          : "SwiftBar not found; run: coding-usage-bar doctor --fix (installs SwiftBar via Homebrew)",
+    });
+
     if (options.dryRun) {
       checks.push({
         name: "SwiftBar login item",
@@ -321,6 +368,8 @@ export interface DoctorFixProbes {
   pluginPresent?: () => boolean;
   swiftBarRunning?: () => boolean;
   swiftBarInLoginItems?: () => boolean | null;
+  argosInstalled?: () => boolean;
+  argosEnabled?: () => boolean;
   statusFilePresent?: () => boolean;
 }
 
@@ -329,6 +378,7 @@ export interface DoctorFixEffects {
   installPlugin?: () => string[];
   launchSwiftBar?: () => string[];
   addLoginItem?: () => string[];
+  ensureArgos?: () => string[];
   collectStatus?: () => Promise<string[]>;
 }
 
@@ -338,15 +388,45 @@ export interface DoctorFixOptions {
   effects?: DoctorFixEffects;
 }
 
-// One-command self-healing for the common "installed but the menu bar icon is
-// gone" failures: missing SwiftBar, missing plugin, SwiftBar not running,
-// SwiftBar missing from login items, and missing status data.
+// One-command self-healing for the common "installed but the menu bar item is
+// gone" failures: missing host (SwiftBar on macOS, Argos on Linux), missing
+// plugin, host not running/enabled, and missing status data.
 export async function runDoctorFix(options: DoctorFixOptions = {}): Promise<string[]> {
   if (options.dryRun) {
-    return ["[dry-run] would repair SwiftBar, the menu bar plugin, login items, and status data automatically"];
+    return ["[dry-run] would repair the menu bar host, the menu bar plugin, and status data automatically"];
   }
 
   const paths = buildPaths();
+  const messages: string[] = [];
+
+  if (process.platform === "linux") {
+    const probes = {
+      argosInstalled: options.probes?.argosInstalled ?? isArgosInstalled,
+      pluginPresent: options.probes?.pluginPresent ?? (() => isFile(argosPluginPath(paths).file)),
+      argosEnabled: options.probes?.argosEnabled ?? isArgosEnabled,
+      statusFilePresent: options.probes?.statusFilePresent ?? (() => isFile(paths.statusFile)),
+    };
+    const effects = {
+      ensureArgos: options.effects?.ensureArgos ?? (() => ensureArgosInstalled()),
+      installPlugin: options.effects?.installPlugin ?? (() => installLinuxMenuBar()),
+      collectStatus: options.effects?.collectStatus ?? (async () => runDaemonOnce()),
+    };
+
+    if (!probes.argosInstalled()) {
+      messages.push(...effects.ensureArgos());
+    }
+    if (!probes.pluginPresent()) {
+      messages.push(...effects.installPlugin());
+    }
+    if (probes.argosInstalled() && !probes.argosEnabled()) {
+      messages.push(...effects.ensureArgos());
+    }
+    if (!probes.statusFilePresent()) {
+      messages.push(...(await effects.collectStatus()));
+    }
+    return messages;
+  }
+
   const probes = {
     swiftBarInstalled: options.probes?.swiftBarInstalled ?? isSwiftBarInstalled,
     pluginPresent: options.probes?.pluginPresent ?? (() => isFile(swiftBarPluginPath(paths).file)),
@@ -361,8 +441,6 @@ export async function runDoctorFix(options: DoctorFixOptions = {}): Promise<stri
     addLoginItem: options.effects?.addLoginItem ?? (() => addSwiftBarToLoginItems()),
     collectStatus: options.effects?.collectStatus ?? (async () => runDaemonOnce()),
   };
-
-  const messages: string[] = [];
 
   let swiftBarInstalled = probes.swiftBarInstalled();
   if (!swiftBarInstalled) {

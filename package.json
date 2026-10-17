@@ -1,7 +1,7 @@
 {
   "name": "coding-usage-bar",
   "version": "0.5.0",
-  "description": "macOS menu bar usage monitor for Claude Code, Codex, GLM, DeepSeek, and MiniMax.",
+  "description": "Menu bar usage monitor (macOS SwiftBar / Linux Argos + systemd) for Claude Code, Codex, GLM, DeepSeek, MiniMax, and Kimi.",
   "author": "hanzhangzzz",
   "license": "MIT",
   "repository": {
@@ -18,6 +18,10 @@
     "openai",
     "anthropic",
     "macos",
+    "linux",
+    "gnome",
+    "argos",
+    "systemd",
     "menu-bar",
     "ai-coding",
     "coding-plan",
@@ -51,7 +55,8 @@
     "node": ">=20"
   },
   "os": [
-    "darwin"
+    "darwin",
+    "linux"
   ],
   "devDependencies": {
     "@types/node": "^24.10.1",

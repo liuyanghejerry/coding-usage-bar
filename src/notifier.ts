@@ -187,7 +187,11 @@ export function sendNotification(analysis: BurnAnalysis, dryRun = false) {
     return `${backend}: ${title}`;
   }
   if (backend === "notify-send") {
-    execFileSync("notify-send", [title, message]);
+    const args = ["-a", "coding-usage-bar"];
+    if (existsSync(appIcon)) {
+      args.push("-i", appIcon);
+    }
+    execFileSync("notify-send", [...args, title, message]);
     return `${backend}: ${title}`;
   }
   if (os.platform() === "win32") {
@@ -341,7 +345,11 @@ export function sendCodexResetNotification(notice: CodexResetNotice, dryRun = fa
     return `${backend}: ${title}`;
   }
   if (backend === "notify-send") {
-    execFileSync("notify-send", [title, message]);
+    const args = ["-a", "coding-usage-bar"];
+    if (existsSync(appIcon)) {
+      args.push("-i", appIcon);
+    }
+    execFileSync("notify-send", [...args, title, message]);
     return `${backend}: ${title}`;
   }
   if (os.platform() === "win32") {

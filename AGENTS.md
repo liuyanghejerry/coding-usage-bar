@@ -24,17 +24,21 @@ Coding Usage Bar 是独立开源项目，也是本工具的唯一事实源。它
 - 日常命令是 `coding-usage-bar doctor` 和 `coding-usage-bar status`。
 - 普通 commit 不自动发布。只有明确准备 Release 时才更新版本、发布 npm 并创建 GitHub Release。
 - provider 监控范围由 `~/.coding-usage-bar/config.json` 的 `providers` 控制，默认 `["codex", "claude", "glm", "deepseek", "minimax", "kimi"]`；临时覆盖可用 `CODING_USAGE_BAR_PROVIDERS=codex,claude`。
-- v1 完整支持 macOS launchd；Windows 只保留通知/调度设计，不承诺可用。
+- v1 完整支持 macOS launchd；Linux 完整支持 systemd user timer（`~/.config/systemd/user/coding-usage-bar.service` + `.timer`，300s 周期，等价 launchd 的 StartInterval=300）；Windows 只保留通知/调度设计，不承诺可用。
+- Linux 菜单栏宿主是 Argos（GNOME Shell 扩展，id `argos@pew.worldwidemann.com`），插件写在 `~/.config/argos/coding-usage-bar.1m.js`（Argos 只认这个目录，不支持自定义插件目录；`CODING_USAGE_BAR_PLUGIN_DIR` 覆盖仅用于测试隔离）。Argos 无法非交互安装（现代 GNOME 无 EGO 列表、git 安装需重启 Shell），安装器只校验并给出安装步骤。
+- Linux 渲染走 `src/menubar-linux.ts` 的纯文本 Argos 输出：不烘焙 glyph、不渲染 PNG 卡片（那是 SwiftBar 性能约束的解法），正文行不写死文字颜色（跟随 GNOME Shell 主题），进度条用 Pango span 精确着色（Argos 不支持 24 位 ANSI 真彩色，不能复用 macOS 的 ANSI meter）。
+- systemd unit 的 ExecStart 必须使用 `stableNodeExecutable()` 解析出的绝对 node 路径；systemctl 调用失败（无 user session 等）只能降级为 WARN 消息，不能中断 install。
 - 安装器必须把当前构建产物复制到 `~/.coding-usage-bar/app/`，launchd 只能指向该稳定副本，不能指向 npx 临时缓存。
 - 安装器必须创建用户级 CLI shim：`~/.local/bin/coding-usage-bar -> ~/.coding-usage-bar/app/dist/cli.js`，否则 `coding-usage-bar doctor/status` 不能作为日常命令直接使用。
 - 安装器必须检查 SwiftBar；macOS 上缺失时通过 Homebrew cask 安装 SwiftBar，然后安装/更新 Coding Usage Bar SwiftBar 插件并启动 SwiftBar。
+- 安装器必须检查 Argos（Linux）：缺失时打印安装步骤（git clone + gnome-extensions enable），不自动安装；插件落地前必须确认 `~/.config/argos`（或 `CODING_USAGE_BAR_PLUGIN_DIR` 覆盖）可写。
 - SwiftBar 插件目录必须读取 SwiftBar 当前 `PluginDirectory`，不能硬编码 `~/Library/Application Support/SwiftBar/Plugins`。用户可能已经把插件目录设到别处。
 - 重复安装必须覆盖两个入口：`npx --no-install coding-usage-bar install` 更新 `~/.coding-usage-bar/app`；已安装后的 `coding-usage-bar install` 不能删除正在运行的 `~/.coding-usage-bar/app`，只能跳过 runtime 自复制并刷新 CLI shim、SwiftBar 插件和 launchd。
 - 安装器必须复制 `assets/` 到 `~/.coding-usage-bar/app/assets/`；静态图标只作为 fallback。`terminal-notifier` 的主要视觉表达应使用运行时生成的动态数据卡片。
 - 重复执行 `coding-usage-bar install` 必须完整安装最新代码，并重启 launchd agent，不能只更新文件不重启。
 - `~/.coding-usage-bar/status.json` 是展示层唯一稳定数据入口。CLI、未来 watch、Menu Bar app、iTerm badge 都应读取该结构，不要重复实现采集逻辑。
 - `coding-usage-bar status` 默认读取 `~/.coding-usage-bar/status.json`；只有 `--refresh`、`--fixtures` 或 daemon 才应触发本机 usage 采集。
-- Menu Bar v1 使用 SwiftBar 插件作为薄展示层：`coding-usage-bar menubar render` 只读 `status.json`，`coding-usage-bar menubar install` 只安装 wrapper 插件，不采集 provider 数据。`coding-usage-bar uninstall` 只删除本工具管理的插件，不卸载 SwiftBar 本体。
+- Menu Bar v1 使用 SwiftBar 插件作为薄展示层（macOS）/ Argos 插件（Linux）：`coding-usage-bar menubar render` 只读 `status.json`，`coding-usage-bar menubar install` 只安装 wrapper 插件，不采集 provider 数据。`coding-usage-bar uninstall` 只删除本工具管理的插件，不卸载 SwiftBar/Argos 本体。
 
 ## 已知踩坑：展示层不能越权采集
 
